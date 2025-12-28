@@ -15,7 +15,7 @@ import datetime
 import chromadb
 from dotenv import load_dotenv
 
-# RAG ve LangChain Bileşenleri (ESKİ VE SAĞLAM SÜRÜMLER)
+# RAG ve LangChain Bileşenleri
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -39,7 +39,7 @@ st.set_page_config(
 )
 load_dotenv()
 
-# --- CSS TASARIMI (SENİN SEVDİĞİN HAVALI TASARIM) ---
+# --- CSS TASARIMI ---
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap');
@@ -56,8 +56,6 @@ st.markdown("""
     }
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    
-    /* Mesaj Kutuları ve Sidebar Cam Efekti */
     [data-testid="column"]:nth-of-type(2), [data-testid="stDataFrame"] {
         background: rgba(255, 255, 255, 0.05);
         backdrop-filter: blur(10px);
@@ -95,12 +93,11 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 PERSIST_DIRECTORY = "./chroma_db_store"
-# Türkçe için en iyi model bu:
 EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 USER_DB_FILE = "users.json"
 LOG_FILE = "logs.json"
 
-# --- ANALİZ (LOGLAMA) ---
+# --- ANALİZ ---
 def log_query(username, question):
     entry = {
         "tarih": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -132,7 +129,7 @@ def save_users(users):
     with open(USER_DB_FILE, "w") as f: json.dump(users, f)
 
 # -----------------------------------------------------------------------------
-# 3. GİRİŞ EKRANI (TABLI YAPI)
+# 3. GİRİŞ SİSTEMİ
 # -----------------------------------------------------------------------------
 def login_system():
     if "logged_in" not in st.session_state:
@@ -187,7 +184,7 @@ def login_system():
 if not login_system(): st.stop()
 
 # -----------------------------------------------------------------------------
-# 4. BACKEND (YAPAY ZEKA)
+# 4. BACKEND
 # -----------------------------------------------------------------------------
 @st.cache_resource
 def get_vector_db():
@@ -199,8 +196,8 @@ def get_vector_db():
     except Exception as e: return None
 
 def get_llm_chain(vectordb):
-    # Gemini 1.5 Flash (Stabil ve Hızlı)
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
+    # SENİN İSTEDİĞİN MODEL AYARI BURADA:
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
     
     custom_template = """
     Sen üniversite mevzuatları konusunda uzman bir asistansın.
@@ -351,20 +348,19 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                 
                 final_answer = f"{answer_text}\n\n---\n📚 **Kaynaklar:**\n" + "\n".join([f"- {s}" for s in formatted_sources])
                 
-                # --- DAKTİLO EFEKTİ (SENİN İSTEDİĞİN ÖZELLİK) ---
+                # Daktilo Efekti
                 def stream_data():
                     for word in final_answer.split(" "):
                         yield word + " "
                         time.sleep(0.02)
                 message_placeholder.write_stream(stream_data)
-                # -----------------------------------------------
 
                 st.session_state.messages.append({"role": "assistant", "content": final_answer})
                 st.session_state.chat_history.append((prompt, answer_text))
 
         except Exception as e: message_placeholder.error(f"Hata: {str(e)}")
 
-# --- SOHBETİ İNDİR BUTONU (SENİN İSTEDİĞİN ÖZELLİK) ---
+# --- SOHBETİ İNDİR BUTONU ---
 if st.session_state.messages and len(st.session_state.messages) > 1:
     st.markdown("---")
     chat_text = "🎓 MEVZUAT ASİSTANI - SOHBET KAYDI\n"
