@@ -23,11 +23,11 @@ import json
 import datetime
 from dotenv import load_dotenv
 
-# RAG ve LangChain Bileşenleri
+# RAG ve LangChain Bileşenleri (ADRESLER GÜNCELLENDİ ✅)
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate  # <-- Kritik Düzeltme Burada
 from langchain.chains import ConversationalRetrievalChain
 
 # Kendi fonksiyonlarımız (data_ingestion.py dosyanın olduğundan emin ol)
@@ -151,10 +151,11 @@ with st.sidebar:
     # Kullanıcı Verilerini Yükle
     users = {}
     try:
-        with open("users.json", "r") as f:
-            users = json.load(f)
-    except FileNotFoundError:
-        st.error("Kullanıcı veritabanı (users.json) bulunamadı.")
+        if os.path.exists("users.json"):
+            with open("users.json", "r") as f:
+                users = json.load(f)
+    except Exception as e:
+        st.error(f"Kullanıcı veritabanı hatası: {e}")
 
     # Giriş Ekranı
     if not st.session_state.logged_in:
@@ -174,10 +175,9 @@ with st.sidebar:
     else:
         # Giriş Yapılmış Durum
         st.info(f"Öğrenci: {st.session_state.username}")
-        st.caption("Soru sorarak yönetmelikleri öğrenebilirsin.")
-
+        
         # --- YÖNETİCİ ÖZEL ALANI ---
-        if st.session_state.role == "admin":
+        if st.session_state.get("role") == "admin":
             st.divider()
             st.subheader("🔧 Yönetici Araçları")
             
@@ -197,7 +197,7 @@ with st.sidebar:
                     
                     # Veritabanını sıfırla ve yeniden kur
                     if os.path.exists(PERSIST_DIRECTORY):
-                        shutil.rmtree(PERSIST_DIRECTORY)
+                        shutil.rmtree(PERSIST_DIRECTORY, ignore_errors=True)
                     
                     chunks = load_and_process_pdfs()
                     if chunks:
