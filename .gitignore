@@ -1,0 +1,13 @@
+# --- GEREKSİZLERİ ENGELLE ---
+venv/
+.venv/
+env/
+__pycache__/
+.env
+.DS_Store
+
+# --- İZİN VERİLENLER (ÖNEMLİ) ---
+# Normalde veritabanları engellenir ama biz
+# sunucu hafızası için buna izin veriyoruz:
+!chroma_db_store/
+!veriler/
