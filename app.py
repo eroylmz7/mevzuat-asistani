@@ -20,12 +20,14 @@ import json
 import datetime
 from dotenv import load_dotenv
 
-# RAG ve LangChain Bileşenleri (ESKİ VE KARARLI SÜRÜM)
+# RAG ve LangChain Bileşenleri (KARARLI SÜRÜM AYARLARI)
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings # <-- Eski adres
+# Yeni "langchain_huggingface" yerine eski "community" içinden çağırıyoruz:
+from langchain_community.embeddings import HuggingFaceEmbeddings 
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.prompts import PromptTemplate  # <-- Eski adres (Burada çalışır)
-from langchain.chains import ConversationalRetrievalChain # <-- Eski adres (Burada çalışır)
+# Prompt ve Chain'leri ana paketten çağırıyoruz (0.1.20 sürümü bunu destekler):
+from langchain.prompts import PromptTemplate  
+from langchain.chains import ConversationalRetrievalChain 
 
 # Kendi fonksiyonlarımız
 from data_ingestion import load_and_process_pdfs
@@ -50,10 +52,10 @@ EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12
 
 @st.cache_resource
 def get_vector_db():
-    # Model yükleme (Eski kütüphane ile)
+    # Model yükleme
     embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
-    # 1. YÖNTEM: Mevcut veritabanı
+    # 1. YÖNTEM: Mevcut veritabanı kontrolü
     if os.path.exists(PERSIST_DIRECTORY):
         try:
             print("💾 Mevcut veritabanı kontrol ediliyor...")
@@ -64,11 +66,11 @@ def get_vector_db():
         except Exception as e:
             print(f"⚠️ Hata: {e}")
 
-    # 2. YÖNTEM: Otomatik Onarım
+    # 2. YÖNTEM: Otomatik Onarım (Auto-Healing)
     print("🔄 Veritabanı sıfırdan kuruluyor...")
     if os.path.exists("./veriler") and os.listdir("./veriler"):
         try:
-            with st.spinner("Sistem hazırlanıyor..."):
+            with st.spinner("Sistem hazırlanıyor (Bu işlem bir kez yapılır)..."):
                 chunks = load_and_process_pdfs()
                 if chunks:
                     vectordb = Chroma.from_documents(chunks, embedding, persist_directory=PERSIST_DIRECTORY)
@@ -80,8 +82,8 @@ def get_vector_db():
     return None
 
 def get_llm_chain(vectordb):
-    # Gemini 1.5 Flash
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.3)
+    # Gemini Ayarları
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
     
     custom_template = """
     Sen üniversite mevzuatları konusunda uzman bir asistansın.
@@ -206,7 +208,7 @@ if st.session_state.logged_in:
                 except Exception as e:
                     placeholder.error(f"Hata: {e}")
     else:
-        st.error("Veritabanı oluşturulamadı.")
+        st.error("Veritabanı şu an hazır değil. Yönetici PDF yüklememiş olabilir.")
 else:
     st.info("Lütfen giriş yapınız.")
 
