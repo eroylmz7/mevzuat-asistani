@@ -373,9 +373,33 @@ if st.session_state.messages and len(st.session_state.messages) > 1:
         chat_text += f"[{role}]: {content}\n\n"
         chat_text += "-"*30 + "\n\n"
 
-    st.download_button(
-        label="📥 Sohbeti İndir (.txt)",
-        data=chat_text,
-        file_name="sohbet_gecmisi.txt",
-        mime="text/plain"
-    )
+    import datetime
+
+
+# SOHBETİ İNDİR BUTONU MANTIĞI
+
+# 1. Anlık zamanı tam şu anda al (Button render edilmeden hemen önce)
+anlik_zaman = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+
+# 2. İndirilecek metni dinamik olarak oluştur
+# (Bunu session_state içinde saklı bir string'den çekmek yerine anlık döngüyle kuruyoruz)
+indirilecek_metin = f"🎓 MEVZUAT ASİSTANI - SOHBET KAYDI\n"
+indirilecek_metin += f"Tarih: {anlik_zaman}\n"
+indirilecek_metin += "-" * 50 + "\n\n"
+
+# 3. Session state'deki mesajları metne ekle
+# (Senin değişken adın st.session_state.messages veya st.session_state.chat_history olabilir, onu kontrol et)
+if "messages" in st.session_state:
+    for msg in st.session_state.messages:
+        rol = "[ASİSTAN]" if msg["role"] == "assistant" else "[ÖĞRENCİ]"
+        icerik = msg["content"]
+        indirilecek_metin += f"{rol}: {icerik}\n"
+        indirilecek_metin += "-" * 30 + "\n"
+
+# 4. Butonu oluştur
+st.sidebar.download_button( # veya sadece st.download_button
+    label="Sohbeti İndir (.txt)",
+    data=indirilecek_metin,
+    file_name=f"sohbet_gecmisi_{anlik_zaman.replace(':', '.')}.txt",
+    mime="text/plain"
+)
