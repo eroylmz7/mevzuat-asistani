@@ -379,7 +379,7 @@ if st.session_state.messages and len(st.session_state.messages) > 1:
 # SOHBETİ İNDİR BUTONU MANTIĞI
 
 # 1. Anlık zamanı tam şu anda al (Button render edilmeden hemen önce)
-anlik_zaman = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+anlik_zaman = (datetime.datetime.now() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
 
 # 2. İndirilecek metni dinamik olarak oluştur
 # (Bunu session_state içinde saklı bir string'den çekmek yerine anlık döngüyle kuruyoruz)
