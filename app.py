@@ -5,12 +5,9 @@ import sys
 import os
 
 try:
-    # Bu kısım sadece Streamlit Cloud'da (Linux) çalışır
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
-    # Local bilgisayarda (Windows) bu kütüphane yoktur,
-    # standart sqlite3 ile devam et.
     pass
 
 # -----------------------------------------------------------------------------
@@ -23,14 +20,14 @@ import json
 import datetime
 from dotenv import load_dotenv
 
-# RAG ve LangChain Bileşenleri (ADRESLER GÜNCELLENDİ ✅)
+# RAG ve LangChain Bileşenleri (ESKİ VE KARARLI SÜRÜM)
 from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings # <-- Eski adres
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import PromptTemplate  # <-- Kritik Düzeltme Burada
-from langchain.chains import ConversationalRetrievalChain
+from langchain.prompts import PromptTemplate  # <-- Eski adres (Burada çalışır)
+from langchain.chains import ConversationalRetrievalChain # <-- Eski adres (Burada çalışır)
 
-# Kendi fonksiyonlarımız (data_ingestion.py dosyanın olduğundan emin ol)
+# Kendi fonksiyonlarımız
 from data_ingestion import load_and_process_pdfs
 
 # -----------------------------------------------------------------------------
@@ -53,62 +50,45 @@ EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12
 
 @st.cache_resource
 def get_vector_db():
-    """
-    Veritabanını yükler. Eğer 'Doku Uyuşmazlığı' (Windows->Linux) yüzünden
-    okuyamazsa, './veriler' klasöründeki PDF'lerden anında sıfırdan kurar.
-    """
+    # Model yükleme (Eski kütüphane ile)
     embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
     
-    # 1. YÖNTEM: Mevcut veritabanını okumayı dene
+    # 1. YÖNTEM: Mevcut veritabanı
     if os.path.exists(PERSIST_DIRECTORY):
         try:
             print("💾 Mevcut veritabanı kontrol ediliyor...")
             vectordb = Chroma(persist_directory=PERSIST_DIRECTORY, embedding_function=embedding)
-            
-            # Basit bir okuma testi yapalım
             if vectordb._collection.count() > 0:
-                print("✅ Veritabanı sağlam, yüklendi.")
+                print("✅ Veritabanı sağlam.")
                 return vectordb
         except Exception as e:
-            print(f"⚠️ Veritabanı okunamadı (OS Uyuşmazlığı): {e}")
+            print(f"⚠️ Hata: {e}")
 
-    # 2. YÖNTEM: Okuyamadıysa veya yoksa SIFIRDAN KUR (Auto-Healing)
-    print("🔄 Otomatik Onarım Modu: Veritabanı sıfırdan kuruluyor...")
-    
+    # 2. YÖNTEM: Otomatik Onarım
+    print("🔄 Veritabanı sıfırdan kuruluyor...")
     if os.path.exists("./veriler") and os.listdir("./veriler"):
         try:
-            with st.spinner("Sistem ilk kez hazırlanıyor, lütfen bekleyiniz..."):
-                # PDF'leri işle
+            with st.spinner("Sistem hazırlanıyor..."):
                 chunks = load_and_process_pdfs()
                 if chunks:
-                    # Sıfırdan veritabanı oluştur
                     vectordb = Chroma.from_documents(chunks, embedding, persist_directory=PERSIST_DIRECTORY)
-                    print("✅ Otomatik kurulum tamamlandı!")
+                    print("✅ Kurulum tamamlandı!")
                     return vectordb
         except Exception as e:
-            st.error(f"❌ Kritik Hata: Otomatik kurulum yapılamadı. {e}")
+            st.error(f"❌ Kurulum hatası: {e}")
             return None
-    else:
-        # Veriler klasörü de boşsa yapacak bir şey yok
-        return None
+    return None
 
 def get_llm_chain(vectordb):
-    """
-    Yapay Zeka ayarları ve Prompt şablonu.
-    """
-    # Gemini 1.5 Flash (Hızlı ve Ucuz)
+    # Gemini 1.5 Flash
     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.3)
     
-    # --- AKILLI PROMPT (Tarih ve Gün Hesabı Yapabilen) ---
     custom_template = """
-    Sen üniversite mevzuatları konusunda uzman, yardımsever bir asistansın.
-    Aşağıdaki sohbet geçmişini ve bağlamı (context) kullanarak soruyu cevapla.
-    
+    Sen üniversite mevzuatları konusunda uzman bir asistansın.
     Kurallar:
-    1. Mevzuat maddeleri (süreler, cezalar, notlar) için SADECE verilen bağlamı kullan. Asla uydurma.
-    2. Tarih hesaplamaları, "Hafta sonu iş günü müdür?", "Bugün pazartesi ise 5 gün sonra ne olur?" gibi mantık soruları için KENDİ GENEL BİLGİNİ kullan.
-    3. Bağlamda bilgi yoksa "Yönetmeliklerde bu bilgiye rastlayamadım." de.
-    4. Cevabı maddeleri referans göstererek ver.
+    1. SADECE verilen bağlamı kullan.
+    2. Tarih ve gün hesaplamaları için kendi bilgini kullan.
+    3. Bilgi yoksa "Bilmiyorum" de.
     
     Sohbet Geçmişi:
     {chat_history}
@@ -132,10 +112,9 @@ def get_llm_chain(vectordb):
     return qa_chain
 
 # -----------------------------------------------------------------------------
-# ARAYÜZ (SIDEBAR - GİRİŞ VE PANEL)
+# ARAYÜZ
 # -----------------------------------------------------------------------------
 
-# Oturum Durumu Başlatma
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 if "username" not in st.session_state:
@@ -147,165 +126,92 @@ if "chat_history" not in st.session_state:
 
 with st.sidebar:
     st.header("⚙️ Panel")
-    
-    # Kullanıcı Verilerini Yükle
     users = {}
     try:
         if os.path.exists("users.json"):
             with open("users.json", "r") as f:
                 users = json.load(f)
-    except Exception as e:
-        st.error(f"Kullanıcı veritabanı hatası: {e}")
+    except: pass
 
-    # Giriş Ekranı
     if not st.session_state.logged_in:
-        username_input = st.text_input("Kullanıcı Adı")
-        password_input = st.text_input("Şifre", type="password")
-        
+        u = st.text_input("Kullanıcı Adı")
+        p = st.text_input("Şifre", type="password")
         if st.button("Giriş Yap"):
-            if username_input in users and users[username_input]["password"] == password_input:
+            if u in users and users[u]["password"] == p:
                 st.session_state.logged_in = True
-                st.session_state.username = username_input
-                st.session_state.role = users[username_input]["role"]
-                st.success(f"Hoş geldin {username_input}!")
+                st.session_state.username = u
+                st.session_state.role = users[u]["role"]
                 st.rerun()
             else:
-                st.error("Hatalı kullanıcı adı veya şifre!")
-    
+                st.error("Hatalı giriş!")
     else:
-        # Giriş Yapılmış Durum
-        st.info(f"Öğrenci: {st.session_state.username}")
-        
-        # --- YÖNETİCİ ÖZEL ALANI ---
+        st.info(f"Kullanıcı: {st.session_state.username}")
         if st.session_state.get("role") == "admin":
             st.divider()
-            st.subheader("🔧 Yönetici Araçları")
-            
-            uploaded_files = st.file_uploader("PDF Yükle (Yönetmelik)", type=["pdf"], accept_multiple_files=True)
-            
-            if st.button("Veritabanını Güncelle"):
-                if uploaded_files:
-                    if not os.path.exists("./veriler"):
-                        os.makedirs("./veriler")
-                    
-                    # Dosyaları kaydet
-                    for file in uploaded_files:
-                        with open(os.path.join("./veriler", file.name), "wb") as f:
-                            f.write(file.getbuffer())
-                    
-                    st.toast("PDF'ler işleniyor, lütfen bekleyin...", icon="⏳")
-                    
-                    # Veritabanını sıfırla ve yeniden kur
-                    if os.path.exists(PERSIST_DIRECTORY):
-                        shutil.rmtree(PERSIST_DIRECTORY, ignore_errors=True)
-                    
-                    chunks = load_and_process_pdfs()
-                    if chunks:
-                        embedding = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME)
-                        Chroma.from_documents(chunks, embedding, persist_directory=PERSIST_DIRECTORY)
-                        st.success("✅ GÜNCELLEME TAMAMLANDI!")
-                        time.sleep(1)
-                        st.rerun()
-                else:
-                    st.warning("Lütfen önce dosya seçin.")
-
-        if st.button("Çıkış Yap"):
+            files = st.file_uploader("PDF Yükle", type=["pdf"], accept_multiple_files=True)
+            if st.button("Güncelle"):
+                if files:
+                    if not os.path.exists("./veriler"): os.makedirs("./veriler")
+                    for f in files:
+                        with open(os.path.join("./veriler", f.name), "wb") as w:
+                            w.write(f.getbuffer())
+                    shutil.rmtree(PERSIST_DIRECTORY, ignore_errors=True)
+                    st.rerun()
+        if st.button("Çıkış"):
             st.session_state.logged_in = False
-            st.session_state.username = ""
-            st.session_state.messages = []
             st.rerun()
-
-# -----------------------------------------------------------------------------
-# ANA SOHBET EKRANI
-# -----------------------------------------------------------------------------
 
 st.title("🎓 Mevzuat Asistanı")
 
 if st.session_state.logged_in:
-    # 1. Veritabanını Getir (Auto-Healing ile)
     vectordb = get_vector_db()
+    if vectordb:
+        for msg in st.session_state.messages:
+            with st.chat_message(msg["role"]): st.markdown(msg["content"])
 
-    if vectordb is None:
-        st.error("🚨 Veritabanı şu an boş ve oluşturulamadı. Lütfen yöneticinin PDF yüklemesini bekleyin.")
-    else:
-        # 2. Sohbet Geçmişini Göster
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        # 3. Yeni Soru Girişi
         if prompt := st.chat_input("Sorunuzu yazın..."):
-            # Kullanıcı mesajını ekle
             st.session_state.messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
+            with st.chat_message("user"): st.markdown(prompt)
 
-            # Cevap Üretimi
             with st.chat_message("assistant"):
-                message_placeholder = st.empty()
-                message_placeholder.markdown("⚡ *Düşünüyor...*")
-                
+                placeholder = st.empty()
+                placeholder.markdown("⚡ *Düşünüyor...*")
                 try:
-                    qa_chain = get_llm_chain(vectordb)
-                    res = qa_chain({"question": prompt, "chat_history": st.session_state.chat_history})
+                    chain = get_llm_chain(vectordb)
+                    res = chain({"question": prompt, "chat_history": st.session_state.chat_history})
+                    answer = res['answer']
                     
-                    answer_text = res['answer']
-                    source_docs = res['source_documents']
+                    # Kaynakları formatla
+                    sources = []
+                    seen = set()
+                    for doc in res['source_documents']:
+                        name = os.path.basename(doc.metadata.get('source', 'Belge'))
+                        page = doc.metadata.get('page', 0) + 1
+                        key = f"{name} (S.{page})"
+                        if key not in seen:
+                            sources.append(key)
+                            seen.add(key)
                     
-                    # Kaynakları düzenle
-                    source_map = {}
-                    for doc in source_docs:
-                        source_name = os.path.basename(doc.metadata.get('source', 'Bilinmiyor'))
-                        page_num = doc.metadata.get('page', 0) + 1
-                        if source_name not in source_map: source_map[source_name] = set()
-                        source_map[source_name].add(page_num)
+                    final = f"{answer}\n\n📚 **Kaynaklar:**\n" + "\n".join([f"- {s}" for s in sources])
                     
-                    formatted_sources = []
-                    for name, pages in source_map.items():
-                        sorted_pages = sorted(list(pages))
-                        page_str = ", ".join(map(str, sorted_pages))
-                        formatted_sources.append(f"**{name}** (Sayfalar: {page_str})")
-                    
-                    final_answer = f"{answer_text}\n\n📚 **Kaynaklar:**\n" + "\n".join([f"- {s}" for s in formatted_sources])
-                    
-                    # --- DAKTİLO EFEKTİ (STREAMING) ---
-                    def stream_data():
-                        for word in final_answer.split(" "):
+                    # Streaming Efekti
+                    def stream():
+                        for word in final.split(" "):
                             yield word + " "
                             time.sleep(0.02)
-                            
-                    message_placeholder.write_stream(stream_data)
-                    # ----------------------------------
-
-                    # Geçmişe kaydet
-                    st.session_state.messages.append({"role": "assistant", "content": final_answer})
-                    st.session_state.chat_history.append((prompt, answer_text))
-                
+                    placeholder.write_stream(stream)
+                    
+                    st.session_state.messages.append({"role": "assistant", "content": final})
+                    st.session_state.chat_history.append((prompt, answer))
                 except Exception as e:
-                    message_placeholder.error(f"Bir hata oluştu: {str(e)}")
-
+                    placeholder.error(f"Hata: {e}")
+    else:
+        st.error("Veritabanı oluşturulamadı.")
 else:
-    st.info("Lütfen sol taraftaki panelden giriş yapınız.")
+    st.info("Lütfen giriş yapınız.")
 
-# -----------------------------------------------------------------------------
-# SOHBETİ İNDİR (SAYFANIN EN ALTI)
-# -----------------------------------------------------------------------------
+# İndirme Butonu
 if st.session_state.messages:
     st.markdown("---")
-    chat_text = "🎓 MEVZUAT ASİSTANI - SOHBET KAYDI\n"
-    chat_text += f"Tarih: {datetime.datetime.now().strftime('%d.%m.%Y %H:%M')}\n"
-    chat_text += "-"*50 + "\n\n"
-    
-    for msg in st.session_state.messages:
-        role = "ASİSTAN" if msg["role"] == "assistant" else "ÖĞRENCİ"
-        content = msg["content"]
-        chat_text += f"[{role}]: {content}\n\n"
-        chat_text += "-"*30 + "\n\n"
-
-    st.download_button(
-        label="📥 Sohbeti İndir (.txt)",
-        data=chat_text,
-        file_name="mevzuat_sohbeti.txt",
-        mime="text/plain",
-        use_container_width=True
-    )
+    txt = "\n\n".join([f"[{m['role'].upper()}]: {m['content']}" for m in st.session_state.messages])
+    st.download_button("Sohbeti İndir", txt, "chat.txt")
