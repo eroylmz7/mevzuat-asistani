@@ -15,7 +15,7 @@ import datetime
 import chromadb
 from dotenv import load_dotenv
 
-# RAG ve LangChain Bileşenleri
+# RAG ve LangChain Bileşenleri (ESKİ VE SAĞLAM SÜRÜMLER)
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -95,7 +95,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 PERSIST_DIRECTORY = "./chroma_db_store"
-# Türkçe için en iyi model bu, bunu değiştirmedim:
+# Türkçe için en iyi model bu:
 EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 USER_DB_FILE = "users.json"
 LOG_FILE = "logs.json"
