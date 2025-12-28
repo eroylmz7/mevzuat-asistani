@@ -221,7 +221,7 @@ def get_llm_chain(vectordb):
     
     qa_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
-        retriever=vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 5}),
+        retriever=vectordb.as_retriever(search_type="similarity", search_kwargs={"k": 60}),
         return_source_documents=True,
         combine_docs_chain_kwargs={"prompt": PROMPT},
         verbose=False
