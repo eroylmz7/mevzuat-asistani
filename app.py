@@ -14,7 +14,7 @@ except ImportError:
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# --- CSS İYİLEŞTİRMELERİ ---
+# --- CSS TASARIMI ---
 st.markdown("""
     <style>
     /* Genel Koyu Tema */
@@ -29,19 +29,29 @@ st.markdown("""
         color: white;
         text-align: center;
         margin-bottom: 20px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
     }
     
-    /* Kaynak Gösterimi (Daha kompakt ve şık) */
-    .source-tag {
-        display: inline-block;
+    /* Analiz Kutusu (Sidebar İçi) */
+    .stats-box {
         background-color: #1f2937;
-        color: #9ca3af;
-        padding: 4px 10px;
-        border-radius: 15px;
-        font-size: 0.85em;
-        margin-right: 5px;
-        margin-bottom: 5px;
+        padding: 10px;
+        border-radius: 8px;
         border: 1px solid #374151;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+    
+    /* Dikey Kaynak Kutucukları (İstek 2) */
+    .source-item {
+        display: block; /* Alt alta dizilmesi için */
+        background-color: #1f2937;
+        color: #d1d5db;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.9em;
+        margin-bottom: 6px; /* Kutular arası boşluk */
+        border-left: 4px solid #3b82f6; /* Sol tarafa mavi çizgi */
     }
     
     /* Butonlar */
@@ -69,14 +79,14 @@ def daktilo_efekti(metin):
     alan.markdown(gecici)
 
 # --- STATE YÖNETİMİ ---
-# Başlangıç mesajı eklendi (İstek 3)
 if "messages" not in st.session_state: 
     st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı, dersler veya yönetmelikler hakkında ne öğrenmek istersiniz?"}]
 
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
+if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False # Analiz kutusu durumu
 
-# --- GİRİŞ EKRANI (TABLI YAPI) ---
+# --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
     st.markdown("<br><br><h1 style='text-align: center;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
     
@@ -104,13 +114,12 @@ if not st.session_state.logged_in:
                 if st.form_submit_button("Kayıt Ol"):
                     try:
                         supabase.table("kullanicilar").insert({"username": new_u, "password": new_p, "role": "student"}).execute()
-                        st.success("Kayıt Başarılı! 'Giriş Yap' sekmesinden girebilirsiniz.")
+                        st.success("Kayıt Başarılı! Giriş yapabilirsiniz.")
                     except: st.error("Bu kullanıcı adı dolu.")
     st.stop()
 
-# --- SIDEBAR (SOL MENÜ) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    # Kullanıcı Kartı
     st.markdown(f"""
         <div class="user-card">
             <h3>{st.session_state.username.upper()}</h3>
@@ -118,8 +127,21 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-    # 1. NAVİGASYON (İstek 2: Analiz kısmı seçilebilir oldu)
-    secilen_mod = st.radio("Mod Seçiniz:", ["💬 Sohbet Asistanı", "📊 Sistem Analizi"])
+    # 1. ANALİZ BUTONU (İstek 1: Sidebar içinde açılır/kapanır yapı)
+    if st.session_state.role == 'admin':
+        if st.button("📊 Analizi Gör / Gizle"):
+            st.session_state.analiz_acik = not st.session_state.analiz_acik
+        
+        if st.session_state.analiz_acik:
+            st.markdown("""
+                <div class="stats-box">
+                    <h4 style="margin:0; color:#3b82f6;">Sistem Özeti</h4>
+                    <hr style="margin:5px 0; border-color:#374151;">
+            """, unsafe_allow_html=True)
+            st.write(f"🔹 **Toplam Sorgu:** {st.session_state.sorgu_sayaci}")
+            st.write(f"🔹 **Mesaj Sayısı:** {len(st.session_state.messages)}")
+            st.markdown("</div>", unsafe_allow_html=True)
+            
     st.divider()
 
     # 2. PDF YÜKLEME
@@ -134,91 +156,67 @@ with st.sidebar:
     
     st.divider()
 
-    # 3. SOHBETİ İNDİR (İstek 5: Çıkış'ın hemen üstünde)
-    if st.session_state.messages:
-        tr_saat = get_tr_time()
-        log = f"🎓 MEVZUAT SOHBET KAYDI - {tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*40 + "\n\n"
-        for m in st.session_state.messages:
-            log += f"[{m['role'].upper()}]: {m['content']}\n\n"
-        
-        st.download_button(
-            label="📥 Sohbeti İndir (.txt)",
-            data=log,
-            file_name=f"sohbet_{tr_saat.strftime('%H%M')}.txt",
-            mime="text/plain"
-        )
+    # 3. İNDİR VE TEMİZLE
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.session_state.messages:
+            tr_saat = get_tr_time()
+            log = f"🎓 SOHBET KAYDI\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
+            for m in st.session_state.messages:
+                log += f"[{m['role'].upper()}]: {m['content']}\n"
+            
+            st.download_button(
+                label="📥 İndir",
+                data=log,
+                file_name=f"sohbet_{tr_saat.strftime('%H%M')}.txt",
+                mime="text/plain"
+            )
+    with c2:
+        if st.button("🗑️ Temizle"):
+            st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi. Nasıl yardımcı olabilirim?"}]
+            st.session_state.sorgu_sayaci = 0
+            st.rerun()
 
-    # 4. ÇIKIŞ YAP
     if st.button("🚪 Çıkış Yap"):
         st.session_state.logged_in = False
         st.rerun()
 
-# --- ANA EKRAN YÖNETİMİ ---
+# --- ANA SOHBET EKRANI ---
+st.title("💬 Mevzuat Asistanı")
 
-if secilen_mod == "💬 Sohbet Asistanı":
-    # --- SOHBET MODU ---
-    st.title("💬 Mevzuat Asistanı")
+# Mesajları Listele
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
 
-    # Mesajları Listele
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+# Chat Input
+if prompt := st.chat_input("Sorunuzu buraya yazın..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.sorgu_sayaci += 1
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-    # Chat Input (İstek 1: CSS kaldırıldığı için artık tam genişlikte)
-    if prompt := st.chat_input("Sorunuzu buraya yazın..."):
-        # 1. Kullanıcı mesajı
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.sorgu_sayaci += 1
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # 2. Asistan cevabı
-        with st.chat_message("assistant"):
-            with st.spinner("Araştırılıyor..."):
-                sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
+    with st.chat_message("assistant"):
+        with st.spinner("Araştırılıyor..."):
+            sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
+            
+            daktilo_efekti(sonuc["answer"])
+            
+            # KAYNAKLARI ALT ALTA GÖSTER (İstek 2)
+            if sonuc["sources"]:
+                st.markdown("---")
+                st.caption("📚 **Referans Kaynaklar:**")
                 
-                # Cevabı yaz
-                daktilo_efekti(sonuc["answer"])
+                # HTML ile alt alta kutucuklar
+                html_sources = ""
+                for src in sonuc["sources"]:
+                    # Her kaynak bir 'source-item' div'i içinde
+                    html_sources += f'<div class="source-item">📄 {src}</div>'
                 
-                # Kaynakları Kompakt Göster (İstek 4)
-                if sonuc["sources"]:
-                    st.markdown("---")
-                    st.caption("📚 **Referans Kaynaklar:**")
-                    
-                    # HTML ile yan yana şık etiketler oluşturuyoruz
-                    html_sources = ""
-                    for src in sonuc["sources"]:
-                        html_sources += f'<span class="source-tag">📄 {src}</span>'
-                    st.markdown(html_sources, unsafe_allow_html=True)
-                
-                # Hafızaya kaydet
-                full_resp = sonuc["answer"]
-                if sonuc["sources"]:
-                    full_resp += "\n\nKaynaklar: " + ", ".join(sonuc["sources"])
-                st.session_state.messages.append({"role": "assistant", "content": full_resp})
-
-elif secilen_mod == "📊 Sistem Analizi":
-    # --- ANALİZ MODU (Sadece Admin veya Herkes?) ---
-    # Eğer sadece admin görsün istiyorsan: if st.session_state.role == 'admin': altına alabilirsin.
-    
-    st.title("📊 Sistem Analiz Paneli")
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.info(f"**Toplam Yapılan Sorgu:** {st.session_state.sorgu_sayaci}")
-    with col2:
-        st.success(f"**Aktif Doküman Sayısı:** {len(uploaded_files) if uploaded_files else 0}")
-
-    st.divider()
-    
-    st.subheader("📌 Son Yapılan Sorgular (Oturum Bazlı)")
-    if len(st.session_state.messages) > 1:
-        # Sadece user mesajlarını al
-        user_msgs = [m['content'] for m in st.session_state.messages if m['role'] == 'user']
-        for i, msg in enumerate(reversed(user_msgs)):
-            st.markdown(f"**{i+1}.** {msg}")
-    else:
-        st.caption("Henüz bir sorgu yapılmadı.")
-    
-    if st.session_state.role != 'admin':
-        st.warning("Not: Daha detaylı analizler için Yönetici yetkisi gereklidir.")
+                st.markdown(html_sources, unsafe_allow_html=True)
+            
+            # Hafızaya kaydet
+            full_resp = sonuc["answer"]
+            if sonuc["sources"]:
+                full_resp += "\n\nKaynaklar:\n" + "\n".join(sonuc["sources"])
+            st.session_state.messages.append({"role": "assistant", "content": full_resp})
