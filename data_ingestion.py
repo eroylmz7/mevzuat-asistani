@@ -1,57 +1,43 @@
 import os
+import tempfile
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import Chroma
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
-def load_and_process_pdfs():
+def process_pdfs(uploaded_files):
     """
-    ./veriler klasöründeki PDF'leri tek tek okur ve parçalar.
+    Streamlit'ten gelen yüklenmiş dosyaları işler ve vektör veritabanını günceller.
     """
-    target_directory = "./veriler"
     documents = []
-
-    # 1. Klasör Kontrolü
-    if not os.path.exists(target_directory):
-        print(f"HATA: '{target_directory}' klasörü bulunamadı!")
-        return []
-
-    # 2. Dosya Listesi
-    files = [f for f in os.listdir(target_directory) if f.endswith(".pdf")]
+    # Embedding modelini başlat
+    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     
-    if not files:
-        print(f"UYARI: '{target_directory}' klasöründe hiç PDF yok.")
-        return []
-
-    print(f"Bulunan PDF Dosyaları: {files}")
-
-    # 3. Dosyaları Tek Tek Oku (En Garanti Yöntem)
-    for file_name in files:
-        file_path = os.path.join(target_directory, file_name)
+    for uploaded_file in uploaded_files:
+        # Streamlit'ten gelen dosyayı geçici bir yere kaydet (Loader'ın okuyabilmesi için)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(uploaded_file.getvalue())
+            tmp_path = tmp_file.name
+        
         try:
-            print(f"İşleniyor: {file_name}...")
-            loader = PyPDFLoader(file_path)
+            loader = PyPDFLoader(tmp_path)
             docs = loader.load()
             documents.extend(docs)
-            print(f"Başarılı: {file_name} ({len(docs)} sayfa)")
-        except Exception as e:
-            print(f"HATA: {file_name} okunurken sorun oluştu: {e}")
+        finally:
+            os.remove(tmp_path) # Geçici dosyayı sil
 
-    # 4. Metinleri Parçala (Chunking)
-    if not documents:
-        print("HATA: Hiçbir belgeden metin çıkarılamadı.")
-        return []
-
+    # Metinleri Parçala
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200,
         separators=["\n\n", "\n", " ", ""]
     )
-    
     chunks = text_splitter.split_documents(documents)
-    print(f"Toplam {len(chunks)} parça metin oluşturuldu.")
     
-    return chunks
-
-if __name__ == "__main__":
-    # Test için çalıştırılabilir
-    load_and_process_pdfs()
-
+    # Vektör Veritabanını Oluştur/Güncelle
+    vectordb = Chroma.from_documents(
+        documents=chunks,
+        embedding=embedding_model,
+        persist_directory="./chroma_db_store"
+    )
+    return vectordb
