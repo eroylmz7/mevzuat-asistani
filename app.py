@@ -18,7 +18,7 @@ except ImportError:
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# --- CSS (AYNI TASARIM) ---
+# --- CSS TASARIMI ---
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -88,16 +88,10 @@ def detayli_konu_analizi():
 @st.cache_resource
 def get_cloud_db():
     try:
-        # Key'i ayarla
         os.environ['PINECONE_API_KEY'] = st.secrets["PINECONE_API_KEY"]
-        
         embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         index_name = "mevzuat-asistani"
-        
-        vector_store = PineconeVectorStore.from_existing_index(
-            index_name=index_name,
-            embedding=embedding_model
-        )
+        vector_store = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embedding_model)
         return vector_store
     except Exception as e:
         print(f"Pinecone Hatası: {e}")
@@ -110,7 +104,6 @@ if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
 if "view_mode" not in st.session_state: st.session_state.view_mode = "chat"
 
-# --- OTOMATİK BAĞLAN ---
 if "vector_db" not in st.session_state or st.session_state.vector_db is None:
     st.session_state.vector_db = get_cloud_db()
 
@@ -187,8 +180,15 @@ with st.sidebar:
         st.session_state.sorgu_sayaci = 0
         st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    # --- ÇIKIŞ YAP (DÜZELTİLDİ) ---
     if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
+        # Hafızayı ve oturumu tamamen sıfırla
         st.session_state.logged_in = False
+        st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
+        st.session_state.sorgu_sayaci = 0
+        st.session_state.username = ""
+        st.session_state.role = ""
         st.rerun()
 
 # --- EKRANLAR ---
@@ -233,7 +233,7 @@ else:
 
         with st.chat_message("assistant"):
             if st.session_state.vector_db is None:
-                st.error("⚠️ Bulut veritabanına bağlanılamadı. Admin yükleme yapmalı.")
+                st.error("⚠️ Bulut veritabanına bağlanılamadı.")
             else:
                 with st.spinner("Bulut taranıyor..."):
                     try:
