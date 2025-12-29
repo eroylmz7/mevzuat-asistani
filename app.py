@@ -13,7 +13,7 @@ try:
     from data_ingestion import process_pdfs 
     from generation import generate_answer 
 except ImportError:
-    st.error("⚠️ Modüller eksik!")
+    st.error("⚠️ Modüller eksik! Lütfen requirements.txt dosyasını kontrol edin.")
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
@@ -126,6 +126,7 @@ if not st.session_state.logged_in:
                             st.session_state.logged_in = True
                             st.session_state.username = res.data[0]['username']
                             st.session_state.role = res.data[0]['role']
+                            st.session_state.view_mode = "chat"
                             st.rerun()
                         else: st.error("Hatalı giriş!")
             with tab_signup:
@@ -147,21 +148,24 @@ with st.sidebar:
     st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
 
     if st.session_state.role == 'admin':
-        if st.button("📊 Analiz Paneli"): st.session_state.analiz_acik = not st.session_state.analiz_acik
+        # KEY EKLENDİ (HATAYI ÇÖZEN KISIM)
+        if st.button("📊 Analiz Paneli", key="btn_analiz_open"): st.session_state.analiz_acik = not st.session_state.analiz_acik
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
             st.write(f"🔹 **Sorgu:** {st.session_state.sorgu_sayaci}")
             c1, c2 = st.columns(2)
             with c1:
-                if st.button("🔍 Büyüt", use_container_width=True):
+                # KEY EKLENDİ
+                if st.button("🔍 Büyüt", use_container_width=True, key="btn_analiz_fullscreen"):
                     st.session_state.view_mode = "analysis_fullscreen"
                     st.rerun()
-            with c2: st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True)
+            with c2: st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True, key="btn_download_report")
             st.markdown('</div>', unsafe_allow_html=True)
         st.divider()
         st.subheader("📁 Veri Yönetimi")
         uploaded_files = st.file_uploader("PDF Yükle (Buluta)", accept_multiple_files=True, type=['pdf'])
-        if st.button("Veritabanını Güncelle"):
+        # KEY EKLENDİ
+        if st.button("Veritabanını Güncelle", key="btn_update_db"):
             if uploaded_files:
                 durum = st.status("Pinecone bulutuna yükleniyor...", expanded=True)
                 st.session_state.vector_db = process_pdfs(uploaded_files)
@@ -173,19 +177,21 @@ with st.sidebar:
         tr_saat = get_tr_time()
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
-        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True)
+        # KEY EKLENDİ
+        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True, key="btn_download_chat")
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    if st.button("🗑️ Temizle", use_container_width=True):
+    # KEY EKLENDİ
+    if st.button("🗑️ Temizle", use_container_width=True, key="btn_clear_chat"):
         st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
         st.session_state.sorgu_sayaci = 0
         st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- ÇIKIŞ YAP (DÜZELTİLDİ) ---
-    if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
-        # Hafızayı ve oturumu tamamen sıfırla
+    # KEY EKLENDİ
+    if st.button("🚪 Çıkış", type="secondary", use_container_width=True, key="btn_logout"):
         st.session_state.logged_in = False
         st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
+        st.session_state.view_mode = "chat"
         st.session_state.sorgu_sayaci = 0
         st.session_state.username = ""
         st.session_state.role = ""
@@ -194,10 +200,8 @@ with st.sidebar:
 # --- EKRANLAR ---
 if st.session_state.view_mode == "analysis_fullscreen":
     if st.session_state.role != 'admin':
-        st.error("Yetkisiz alan.")
-        if st.button("Dön"):
-            st.session_state.view_mode = "chat"
-            st.rerun()
+        st.session_state.view_mode = "chat"
+        st.rerun()
     else:
         st.title("📊 Sistem İstatistikleri")
         k1, k2, k3 = st.columns(3)
@@ -216,7 +220,8 @@ if st.session_state.view_mode == "analysis_fullscreen":
             msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
             for m in reversed(msgs[-8:]): st.code(m[:50]+"...", language="text")
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔙 Geri Dön", type="primary"):
+        # KEY EKLENDİ
+        if st.button("🔙 Geri Dön", type="primary", key="btn_back_to_chat"):
             st.session_state.view_mode = "chat"
             st.rerun()
 
