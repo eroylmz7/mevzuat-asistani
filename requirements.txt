@@ -8,3 +8,5 @@ pysqlite3-binary
 sentence-transformers
 pypdf
 tiktoken
+supabase
+pytz
