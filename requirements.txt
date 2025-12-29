@@ -1,12 +1,11 @@
 streamlit
 supabase
-langchain
-langchain-community
-langchain-core
-langchain-text-splitters  # <-- İşte yeni eklediğimiz kritik parça!
+langchain==0.1.20
+langchain-community==0.0.38
+langchain-core==0.1.52
 langchain-google-genai
-langchain-pinecone
-pinecone
+langchain-pinecone==0.1.1
+pinecone>=3.0.0
 sentence-transformers
 pypdf
 python-dotenv
