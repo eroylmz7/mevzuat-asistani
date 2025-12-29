@@ -2,8 +2,7 @@ import streamlit as st
 import datetime
 import pytz
 import time
-from collections import Counter
-import re
+import pandas as pd # Veri analizi için eklendi
 from supabase import create_client
 
 # --- MODÜLLER ---
@@ -16,10 +15,10 @@ except ImportError:
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# --- PROFESYONEL CSS TASARIMI ---
+# --- CSS TASARIMI ---
 st.markdown("""
     <style>
-    /* 1. GENEL TEMALAR */
+    /* 1. GENEL KOYU TEMA */
     .stApp { background-color: #0f172a; color: #f8fafc; }
     [data-testid="stSidebar"] { background-color: #1e293b; border-right: 1px solid #334155; }
     
@@ -51,11 +50,9 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0 6px 8px rgba(0,0,0,0.2);
     }
-
-    /* İndirme Butonu (Download Button) için özel stil */
     .stDownloadButton > button {
         width: 100%;
-        background-color: #475569; /* Daha nötr bir gri/mavi */
+        background-color: #475569;
         color: white !important;
         border-radius: 8px;
         font-weight: 500;
@@ -64,9 +61,6 @@ st.markdown("""
         background-color: #64748b;
     }
     
-    /* Temizle Butonu (Biraz daha uyarıcı ton olabilir ama uyumlu kalsın) */
-    /* Özel CSS sınıfı atayamadığımız için Python sırasına güveniyoruz */
-
     /* 4. ANALİZ KUTUSU */
     .stats-box {
         background-color: #334155;
@@ -118,12 +112,41 @@ def analiz_raporu_olustur():
     for msg in user_msgs[-5:]: rapor += f"- {msg}\n"
     return rapor
 
-def konu_analizi_yap():
-    text = " ".join([m['content'] for m in st.session_state.messages if m['role'] == 'user']).lower()
-    # Basit kelime sayımı (daha gelişmiş NLP eklenebilir)
-    kelimeler = re.findall(r'\w+', text)
-    # 4 harften kısa kelimeleri (ve, ile, vb.) ele
-    return Counter([k for k in kelimeler if len(k) > 4]).most_common(5)
+def detayli_konu_analizi():
+    """Mesajları kategorilere ayırır ve oranlarını hesaplar."""
+    user_msgs = [m['content'].lower() for m in st.session_state.messages if m['role'] == 'user']
+    total = len(user_msgs)
+    if total == 0: return pd.DataFrame()
+
+    # Kategori Tanımları (Keyword Mapping)
+    kategoriler = {
+        "Sınav & Değerlendirme": ["sınav", "vize", "final", "büt", "not", "ortalama", "gano"],
+        "Mezuniyet & Kredi": ["mezun", "kredi", "akts", "diploma", "yükü"],
+        "Staj & Uygulama": ["staj", "iş yeri", "pratik", "uygulama", "gün"],
+        "Kayıt & Dersler": ["kayıt", "ders", "seçmeli", "zorunlu", "ekle", "bırak"],
+        "Hak & İzinler": ["izin", "mazeret", "dondurma", "rapor"]
+    }
+
+    sonuclar = {k: 0 for k in kategoriler.keys()}
+    sonuclar["Diğer"] = 0
+
+    for msg in user_msgs:
+        bulundu = False
+        for kat, keywords in kategoriler.items():
+            if any(k in msg for k in keywords):
+                sonuclar[kat] += 1
+                bulundu = True
+                break # Bir kategoriye girdiyse diğerlerine bakma
+        if not bulundu:
+            sonuclar["Diğer"] += 1
+
+    # DataFrame Oluştur
+    df = pd.DataFrame(list(sonuclar.items()), columns=["Konu Başlığı", "Soru Sayısı"])
+    df = df[df["Soru Sayısı"] > 0] # Hiç sorulmayanları gizle
+    df["Oran (%)"] = (df["Soru Sayısı"] / total) * 100
+    df = df.sort_values(by="Soru Sayısı", ascending=False)
+    
+    return df
 
 # --- STATE ---
 if "messages" not in st.session_state: 
@@ -186,13 +209,16 @@ with st.sidebar:
             st.write(f"🔹 **Toplam Sorgu:** {st.session_state.sorgu_sayaci}")
             st.write(f"🔹 **Mesajlar:** {len(st.session_state.messages)}")
             
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("🔍 Büyüt"):
-                    st.session_state.view_mode = "analysis_fullscreen"
-                    st.rerun()
-            with c2:
-                st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt")
+            # Sidebar içi mini butonlar (Dikey - İstek 2)
+            if st.button("🔍 Detaylı İncele", use_container_width=True):
+                st.session_state.view_mode = "analysis_fullscreen"
+                st.rerun()
+            
+            # Küçük boşluk
+            st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
+            
+            st.download_button("📥 Raporu İndir", analiz_raporu_olustur(), "analiz.txt", use_container_width=True)
+            
             st.markdown('</div>', unsafe_allow_html=True)
     
     st.divider()
@@ -208,43 +234,36 @@ with st.sidebar:
     
     st.divider()
 
-    # 3. SOHBET YÖNETİMİ (Profesyonel Dikey Düzen)
+    # 3. SOHBET YÖNETİMİ (Dikey Butonlar)
     st.caption("Sohbet Kontrolü")
     
-    # Sohbet İndir
     if st.session_state.messages:
         tr_saat = get_tr_time()
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
         
-        st.download_button(
-            label="📥 Sohbet Geçmişini İndir",
-            data=log,
-            file_name=f"sohbet_{tr_saat.strftime('%H%M')}.txt",
-            mime="text/plain",
-            use_container_width=True # Tam genişlik
-        )
+        st.download_button("📥 Sohbeti Kaydet", log, f"sohbet_{tr_saat.strftime('%H%M')}.txt", use_container_width=True)
 
-    # Sohbet Temizle (Hemen altında)
-    if st.button("🗑️ Yeni Sohbet Başlat", use_container_width=True):
+    # Butonlar arası boşluk
+    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
+
+    if st.button("🗑️ Sohbeti Temizle", use_container_width=True):
         st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi. Yeni sorunuz nedir?"}]
         st.session_state.sorgu_sayaci = 0
         st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Çıkış Yap (En altta)
     if st.button("🚪 Çıkış Yap", type="secondary", use_container_width=True):
         st.session_state.logged_in = False
         st.rerun()
 
-# --- EKRAN MODLARI ---
+# --- EKRAN YÖNETİMİ ---
 
 if st.session_state.view_mode == "analysis_fullscreen":
     # --- TAM EKRAN ANALİZ ---
     st.title("📊 Detaylı Sistem İstatistikleri")
     
-    # Metrikler
     k1, k2, k3 = st.columns(3)
     k1.metric("Toplam Sorgu", st.session_state.sorgu_sayaci)
     k2.metric("Yüklenen Doküman", len(uploaded_files) if uploaded_files else 0)
@@ -253,20 +272,40 @@ if st.session_state.view_mode == "analysis_fullscreen":
     
     g1, g2 = st.columns([2, 1])
     
-    # Konu Dağılımı Grafiği (Başlık Güncellendi)
+    # 1. KONU ANALİZİ (İstek 1)
     with g1:
         st.subheader("🔥 En Çok Merak Edilen Konular")
-        konular = konu_analizi_yap()
-        if konular:
-            # Grafik verisi
-            st.bar_chart({k: v for k, v in konular})
+        df_analiz = detayli_konu_analizi()
+        
+        if not df_analiz.empty:
+            # Streamlit Dataframe ile şık gösterim (Bar Chart yerine Tablo+Bar)
+            st.dataframe(
+                df_analiz,
+                column_config={
+                    "Konu Başlığı": "Kategori",
+                    "Soru Sayısı": st.column_config.NumberColumn("Adet"),
+                    "Oran (%)": st.column_config.ProgressColumn(
+                        "Talep Yoğunluğu",
+                        format="%.1f%%",
+                        min_value=0,
+                        max_value=100,
+                    ),
+                },
+                hide_index=True,
+                use_container_width=True
+            )
         else:
             st.info("Analiz için yeterli veri yok.")
             
+    # 2. SON AKTİVİTELER
     with g2:
         st.subheader("📝 Son Aktiviteler")
         msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
-        for m in reversed(msgs[-8:]): st.info(m[:100] + "..." if len(m)>100 else m)
+        if msgs:
+            for m in reversed(msgs[-8:]): 
+                st.code(m[:60] + "..." if len(m)>60 else m, language="text")
+        else:
+            st.caption("Henüz soru sorulmadı.")
         
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🔙 Sohbete Geri Dön", type="primary"):
