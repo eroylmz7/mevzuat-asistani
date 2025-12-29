@@ -37,10 +37,10 @@ def generate_answer(question, vector_store, chat_history):
         hybrid_query = f"{question} {official_terms}"
         
         # EKRANA YAZDIRALIM (Kullanıcı görsün ne arandığını)
-        with st.expander("🕵️‍♂️ Arka Plan İşlemleri (Debug)", expanded=False):
-            st.write(f"**Orijinal Soru:** {question}")
-            st.write(f"**Resmi Terimler:** {official_terms}")
-            st.write(f"**Veritabanında Aranan:** {hybrid_query}")
+        #with st.expander("🕵️‍♂️ Arka Plan İşlemleri (Debug)", expanded=False):
+         #   st.write(f"**Orijinal Soru:** {question}")
+          #  st.write(f"**Resmi Terimler:** {official_terms}")
+           # st.write(f"**Veritabanında Aranan:** {hybrid_query}")
             
     except:
         hybrid_query = question 
