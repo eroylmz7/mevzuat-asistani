@@ -22,7 +22,7 @@ def generate_answer(question, vector_store, chat_history):
     
     # 3. Ayarlar
     # Buluttan kaç parça belge getirsin? 
-    retriever = vector_store.as_retriever(search_kwargs={"k": 50})
+    retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
     # Gemini Modelini Başlat
     llm = ChatGoogleGenerativeAI(
