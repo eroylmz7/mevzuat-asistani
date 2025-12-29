@@ -10,75 +10,79 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- ADIM 1: ARAMA TERİMİ OLUŞTURMA (Sadece Bulmak İçin) ---
-    # Burası cevabı etkilemez, sadece doğru PDF sayfasını bulmaya yarar.
+    # --- ADIM 1: HİBRİT ARAMA TERİMİ OLUŞTURMA ---
+    # Hem öğrencinin dediğini hem de resmi karşılığını aynı anda arayacağız.
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0 # Çeviri yaparken bile risk almıyoruz
+        temperature=0.1 
     )
     
     translation_prompt = f"""
-    GÖREV: Kullanıcının sorusunu, üniversite yönetmeliklerinde geçebilecek RESMİ TERİMLERE dönüştür.
+    GÖREV: Öğrencinin sorusundaki anahtar kelimelerin RESMİ MEVZUAT karşılıklarını bul.
+    Sadece resmi terimleri yan yana yaz.
     
-    KURALLAR:
-    1. Asla soruyu cevaplama.
-    2. Sadece arama motoru için anahtar kelime üret.
-    3. Eş anlamlıları düşün (Staj -> Uygulamalı Eğitim, Okul -> Üniversite vb.)
+    Örnek:
+    Soru: "Staj yerimi değiştirebilir miyim?"
+    Cevap: Uygulamalı Eğitim İşletme Değişikliği
     
     Soru: "{question}"
-    Arama Terimleri:
+    Cevap:
     """
     
     try:
-        enhanced_query = llm_translator.invoke(translation_prompt).content
-        # Loglara yazdırıp ne aradığını görebilirsin (İsteğe bağlı)
-        print(f"🔍 Arama: {enhanced_query}") 
+        official_terms = llm_translator.invoke(translation_prompt).content
+        # SİHİRLİ DOKUNUŞ: İkisini birleştiriyoruz!
+        # "Staj yerimi değiştirebilir miyim? Uygulamalı Eğitim İşletme Değişikliği"
+        hybrid_query = f"{question} {official_terms}"
+        
+        # EKRANA YAZDIRALIM (Kullanıcı görsün ne arandığını)
+        with st.expander("🕵️‍♂️ Arka Plan İşlemleri (Debug)", expanded=False):
+            st.write(f"**Orijinal Soru:** {question}")
+            st.write(f"**Resmi Terimler:** {official_terms}")
+            st.write(f"**Veritabanında Aranan:** {hybrid_query}")
+            
     except:
-        enhanced_query = question 
+        hybrid_query = question 
 
-    # --- ADIM 2: BELGE GETİRME ---
-    # Pinecone'dan en alakalı 10 parçayı getiriyoruz
-    docs = vector_store.max_marginal_relevance_search(enhanced_query, k=10, fetch_k=30)
+    # --- ADIM 2: BELGE GETİRME (MMR ile Çeşitlilik) ---
+    # fetch_k=40 yaptık ki havuz geniş olsun, ıskalamasın.
+    docs = vector_store.max_marginal_relevance_search(hybrid_query, k=10, fetch_k=40)
     
     # --- ADIM 3: BAĞLAM OLUŞTURMA ---
     context_text = ""
     sources = []
     for i, doc in enumerate(docs):
-        # Metni temizle
         clean_content = doc.page_content.replace("\n", " ").strip()
         context_text += f"\n--- BELGE PARÇASI {i+1} ---\n{clean_content}\n"
         
-        # Kaynakları topla
         source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         page_num = int(doc.metadata.get("page", 0)) + 1
         src_str = f"{source_name} (Sayfa {page_num})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- ADIM 4: CEVAP ÜRETME (SIFIR YORUM MODU) ---
+    # --- ADIM 4: CEVAP ÜRETME (SIFIR TOLERANS) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0  # <--- KRİTİK AYAR: 0.0 demek "Robot Modu" demektir. Asla uyduramaz.
+        temperature=0.0 # Kesinlikle uydurmasın, sadece metni okusun.
     )
     
     final_template = f"""
-    Sen sadece verilen metinlere sadık kalan bir üniversite asistanısın.
+    Sen üniversite mevzuat asistanısın.
     
-    GÖREV: Aşağıdaki "RESMİ BELGELER" içindeki bilgileri kullanarak soruya cevap ver.
+    Aşağıdaki "RESMİ BELGELER"i oku ve soruya cevap ver.
     
     RESMİ BELGELER:
     {context_text}
     
     SORU: {question}
     
-    ÇOK KATI KURALLAR:
-    1. Sadece ve sadece yukarıdaki "RESMİ BELGELER"de yazan bilgiyi kullan.
-    2. Kendi yorumunu, dışarıdan bildiğin bilgileri ASLA ekleme.
-    3. Belgede "Uygulamalı Eğitim" yazıyorsa ve öğrenci "Staj" dediyse, cevabında "Yönetmelikte Uygulamalı Eğitim olarak belirtildiği üzere..." diyerek düzelt ve cevabı ver.
-    4. Eğer bilgi belgelerde YOKSA, "Verilen dokümanlarda bu sorunun cevabı bulunmamaktadır" de. Uydurma.
-    5. Cevabın resmi ve net olsun.
+    KURALLAR:
+    1. Belgede "Uygulamalı Eğitim" yazıyorsa ve öğrenci "Staj" dediyse bunları aynı şey kabul et.
+    2. Cevabı belgelerin içinden bul ve net bir şekilde yaz.
+    3. Eğer belgede YOKSA, "Verilen dokümanlarda bu bilgi yer almıyor" de.
     
     CEVAP:
     """
