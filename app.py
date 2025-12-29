@@ -4,21 +4,28 @@ import pytz
 import time
 import os
 from supabase import create_client, Client
-from data_ingestion import process_pdfs
-from generation import generate_answer
 
-# --- 1. AYARLAR VE TASARIM ---
-st.set_page_config(page_title="Mevzuat Asistanı", page_icon="🎓", layout="wide")
+# --- 1. KENDİ MODÜLLERİNİ İMPORT ET ---
+try:
+    from data_ingestion import process_pdfs 
+    # generation.py içindeki generate_answer fonksiyonun hem yanıtı hem kaynakları dönmeli
+    from generation import generate_answer 
+except ImportError:
+    st.error("Kritik Hata: Modüller (data_ingestion veya generation) bulunamadı!")
 
-# Modern Tasarım CSS
+# --- 2. TASARIM VE SAYFA AYARLARI ---
+st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
+
 st.markdown("""
     <style>
     .stApp { background-color: #f4f7f9; }
-    .user-card { text-align: center; padding: 1rem; background: #1E3A8A; color: white; border-radius: 10px; margin-bottom: 10px; }
+    .stTabs [aria-selected="true"] { background-color: #1E3A8A; color: white !important; font-weight: bold; }
+    .user-card { text-align: center; padding: 1.5rem; background: linear-gradient(135deg, #1E3A8A, #3B82F6); color: white; border-radius: 12px; margin-bottom: 15px; }
+    .stChatMessage { border-radius: 15px; padding: 12px; margin-bottom: 10px; border: 1px solid #e0e0e0; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. VERİTABANI VE YARDIMCILAR ---
+# --- 3. VERİTABANI VE ZAMAN YÖNETİMİ ---
 @st.cache_resource
 def get_supabase_client():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -34,96 +41,119 @@ def daktilo_efekti(metin, alan=None):
     for harf in metin:
         gecici_metin += harf
         alan.markdown(gecici_metin + "▌")
-        time.sleep(0.01)
+        time.sleep(0.005) # Hızlı daktilo efekti
     alan.markdown(gecici_metin)
 
-# --- 3. OTURUM YÖNETİMİ ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-if "vector_db" not in st.session_state:
-    # Başlangıçta varsa yükle (Open files hatasını önlemek için cache'li yüklenebilir)
-    st.session_state.vector_db = None
+# --- 4. OTURUM VE AUTH YÖNETİMİ ---
+if "messages" not in st.session_state: st.session_state.messages = [] # Hafıza
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
+if "auth_mode" not in st.session_state: st.session_state.auth_mode = "login"
 
-# --- 4. GİRİŞ EKRANI (Supabase) ---
+# --- GİRİŞ VE KAYIT EKRANI (Supabase Entegre) ---
 if not st.session_state.logged_in:
-    _, col_login, _ = st.columns([1, 1.2, 1])
-    with col_login:
-        st.markdown("<h1 style='text-align: center;'>🎓 Mevzuat Sistemi Giriş</h1>", unsafe_allow_html=True)
-        with st.form("login"):
-            u = st.text_input("Kullanıcı Adı")
-            p = st.text_input("Şifre", type="password")
-            if st.form_submit_button("Giriş Yap", type="primary"):
-                res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
-                if res.data:
-                    st.session_state.logged_in = True
-                    st.session_state.username = res.data[0]['username']
-                    st.session_state.role = res.data[0]['role']
-                    st.rerun()
-                else:
-                    st.error("Giriş başarısız!")
+    _, col_auth, _ = st.columns([1, 1.2, 1])
+    with col_auth:
+        if st.session_state.auth_mode == "login":
+            st.markdown("<h1 style='text-align: center;'>🎓 Giriş Yap</h1>", unsafe_allow_html=True)
+            with st.form("login"):
+                u = st.text_input("Kullanıcı Adı")
+                p = st.text_input("Şifre", type="password")
+                if st.form_submit_button("Giriş Yap", type="primary"):
+                    res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
+                    if res.data:
+                        st.session_state.logged_in = True
+                        st.session_state.username = res.data[0]['username']
+                        st.session_state.role = res.data[0]['role']
+                        st.rerun()
+                    else: st.error("❌ Kullanıcı adı veya şifre hatalı!")
+            if st.button("Hesabın yok mu? Kayıt Ol"):
+                st.session_state.auth_mode = "signup"
+                st.rerun()
+        else: # KAYIT MODU
+            st.markdown("<h1 style='text-align: center;'>📝 Yeni Kayıt</h1>", unsafe_allow_html=True)
+            with st.form("signup"):
+                nu = st.text_input("Kullanıcı Adı")
+                np = st.text_input("Şifre", type="password")
+                if st.form_submit_button("Kaydı Tamamla"):
+                    try:
+                        supabase.table("kullanicilar").insert({"username": nu, "password": np, "role": "student"}).execute()
+                        st.success("Kayıt başarılı! Giriş ekranına yönlendiriliyorsunuz.")
+                        time.sleep(1.5)
+                        st.session_state.auth_mode = "login"
+                        st.rerun()
+                    except: st.error("Bu kullanıcı adı zaten alınmış.")
+            if st.button("Giriş ekranına dön"):
+                st.session_state.auth_mode = "login"
+                st.rerun()
     st.stop()
 
-# --- 5. SIDEBAR ---
+# --- 5. SIDEBAR (KONTROL PANELİ) ---
 with st.sidebar:
-    st.markdown(f"<div class='user-card'><h3>{st.session_state.username.upper()}</h3></div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='user-card'><h3>{st.session_state.username.upper()}</h3><small>{st.session_state.role.upper()} YETKİSİ</small></div>", unsafe_allow_html=True)
     
     st.subheader("📁 Veri Yönetimi")
     uploaded_files = st.file_uploader("PDF Yükleyin", accept_multiple_files=True, type=['pdf'])
     
     if st.button("🚀 Veritabanını Güncelle", type="primary"):
         if uploaded_files:
-            durum = st.empty()
-            with st.spinner("İşleniyor..."):
-                durum.info("📑 PDF'ler işleniyor...")
-                st.session_state.vector_db = process_pdfs(uploaded_files)
-                durum.success("✅ Veritabanı güncellendi!")
-        else:
-            st.warning("Lütfen dosya yükleyin.")
+            durum = st.status("Mevzuat analiz ediliyor...", expanded=True)
+            durum.write("📄 PDF içerikleri okunuyor...")
+            st.session_state.vector_db = process_pdfs(uploaded_files)
+            durum.write("🧠 Gemini 2.5 Flash tabanlı vektör hafızası güncelleniyor...")
+            durum.update(label="✅ Veritabanı Güncellendi!", state="complete")
+        else: st.warning("Lütfen dosya seçin.")
 
     st.divider()
-    
-    # Sohbet İndirme
-    if st.session_state.messages:
-        tr_saat = get_tr_time()
-        log = f"🎓 SOHBET KAYDI - {tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*40 + "\n\n"
-        for m in st.session_state.messages:
-            log += f"[{m['role'].upper()}]: {m['content']}\n\n"
-        st.download_button("📥 Sohbeti İndir", log, file_name=f"sohbet_{tr_saat.strftime('%H%M')}.txt")
 
-    if st.button("🚪 Çıkış Yap"):
+    # SOHBET İNDİRME
+    if st.session_state.messages:
+        tr_now = get_tr_time()
+        log = f"🎓 MEVZUAT ASİSTANI KAYDI - {tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*45 + "\n\n"
+        for m in st.session_state.messages:
+            label = "ASİSTAN" if m["role"] == "assistant" else "ÖĞRENCİ"
+            log += f"[{label}]: {m['content']}\n\n"
+        st.download_button("📥 Sohbeti İndir (.txt)", log, file_name=f"kayit_{tr_now.strftime('%H%M')}.txt", use_container_width=True)
+
+    if st.button("🚪 Güvenli Çıkış"):
         st.session_state.logged_in = False
         st.rerun()
 
-# --- 6. ANA EKRAN ---
-st.title("🎓 Kampüs Mevzuat Asistanı")
-tab1, tab2 = st.tabs(["💬 Sohbet", "📊 Analiz"])
+# --- 6. ANA PANEL (SOHBET VE ANALİZ) ---
+st.title("💬 Kampüs Mevzuat Sorgulama")
+tab_chat, tab_analiz = st.tabs(["💬 Akıllı Sohbet", "📊 Doküman Analizi"])
 
-with tab1:
+with tab_chat:
+    # Eski mesajları bas (Memory)
     for m in st.session_state.messages:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    if prompt := st.chat_input("Sorunuzu yazın..."):
+    if prompt := st.chat_input("Mevzuat hakkında sorunuzu buraya yazın..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
         with st.chat_message("assistant"):
-            if st.session_state.vector_db is not None:
-                with st.spinner("Mevzuat taranıyor..."):
-                    response = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-                    daktilo_efekti(response)
-                    st.session_state.messages.append({"role": "assistant", "content": response})
-            else:
-                st.warning("Lütfen önce sol menüden PDF yükleyip veritabanını güncelleyin.")
+            with st.spinner("Gemini 2.5 Flash taranıyor..."):
+                # Yanıtı ve Kaynakları Üret
+                # generate_answer fonksiyonuna k=50 ayarını generation.py içinde verdik
+                result = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
+                
+                # Cevabı daktilo ile yaz
+                daktilo_efekti(result["answer"])
+                
+                # Kaynakları Listele
+                if result.get("sources"):
+                    source_box = "\n\n📚 **Kaynaklar:**\n" + "\n".join([f"- {s}" for s in result["sources"]])
+                    st.markdown(source_box)
+                    full_resp = result["answer"] + source_box
+                else: full_resp = result["answer"]
+                
+                st.session_state.messages.append({"role": "assistant", "content": full_resp})
 
-with tab2:
-    st.subheader("📑 Doküman Analizi")
+with tab_analiz:
+    st.subheader("📑 Mevcut Yönetmelik Analizi")
     if uploaded_files:
-        st.write(f"Aktif Doküman Sayısı: {len(uploaded_files)}")
-        for f in uploaded_files:
-            st.write(f"- {f.name}")
-    else:
-        st.info("Henüz doküman yüklenmedi.")
+        st.info(f"Sistemde şu an {len(uploaded_files)} adet doküman taranabilir durumda.")
+        for f in uploaded_files: st.write(f"✅ {f.name}")
+    else: st.warning("Henüz doküman yüklenmedi.")
