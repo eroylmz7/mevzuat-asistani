@@ -3,8 +3,8 @@ supabase
 langchain
 langchain-community
 langchain-google-genai
-langchain-pinecone
-pinecone
+langchain-pinecone>=0.1.0
+pinecone>=3.0.0
 sentence-transformers
 pypdf
 python-dotenv
