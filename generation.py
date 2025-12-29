@@ -26,7 +26,7 @@ def generate_answer(question, vector_store, chat_history):
 
     # Gemini Modelini Başlat
     llm = ChatGoogleGenerativeAI(
-        model="gemini-1.5-flash", # Hız ve performans için ideal
+        model="gemini-2.5-flash", # Hız ve performans için ideal
         google_api_key=google_api_key,
         temperature=0.3
     )
