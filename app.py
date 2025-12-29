@@ -2,81 +2,53 @@ import streamlit as st
 import datetime
 import pytz
 import time
-import os
-from supabase import create_client, Client
+from supabase import create_client
 
-# --- KENDİ MODÜLLERİNİ İMPORT ET ---
+# Modülleri yükle
 try:
     from data_ingestion import process_pdfs 
     from generation import generate_answer 
 except ImportError:
-    st.error("⚠️ Hata: data_ingestion.py veya generation.py bulunamadı.")
+    st.error("⚠️ Modüller yüklenemedi!")
 
-# --- 1. SAYFA VE TEMA AYARLARI (KRİTİK KISIM) ---
-st.set_page_config(
-    page_title="Kampüs Mevzuat Asistanı", 
-    page_icon="🎓", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# --- SAYFA AYARLARI ---
+st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# BURASI ARKA PLANI VE RENKLERİ DÜZELTİR
+# CSS DÜZELTMELERİ (Chat Bar Aşağıda, Renkler Düzgün)
 st.markdown("""
     <style>
-    /* 1. Tüm Arka Planı Koyu Yap */
-    .stApp {
-        background-color: #0e1117;
-        color: #fafafa;
-    }
+    .stApp { background-color: #0e1117; color: #fafafa; }
+    [data-testid="stSidebar"] { background-color: #262730; }
     
-    /* 2. Sidebar (Sol Menü) Rengi */
-    [data-testid="stSidebar"] {
-        background-color: #262730;
-    }
-    
-    /* 3. Giriş Ekranı ve Kartlar */
-    .user-card, .login-container {
-        background: #1f2937;
-        padding: 20px;
-        border-radius: 10px;
-        border: 1px solid #374151;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    }
-    
-    /* 4. Input Alanları (Giriş kutuları) */
-    .stTextInput > div > div > input {
-        background-color: #111827; 
-        color: white;
-        border: 1px solid #374151;
-    }
-    
-    /* 5. Tab (Sekme) Tasarımı */
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-    .stTabs [data-baseweb="tab"] {
+    /* Sekme (Tab) Tasarımı */
+    .stTabs [data-baseweb="tab-list"] button {
+        flex: 1; /* Sekmeleri eşit genişlikte yap */
         background-color: #1f2937;
-        color: #9ca3af;
-        border-radius: 8px 8px 0 0;
-        border: none;
+        color: white;
+        border-radius: 5px;
+        margin: 2px;
     }
     .stTabs [aria-selected="true"] {
         background-color: #3b82f6 !important;
-        color: white !important;
+        font-weight: bold;
     }
     
-    /* 6. Butonlar */
-    .stButton > button {
-        background-color: #2563eb;
+    /* Kullanıcı Kartı */
+    .user-card {
+        padding: 15px;
+        background: linear-gradient(90deg, #1e3a8a, #2563eb);
+        border-radius: 10px;
         color: white;
-        border: none;
-        transition: all 0.3s;
+        text-align: center;
+        margin-bottom: 20px;
     }
-    .stButton > button:hover {
-        background-color: #1d4ed8;
-    }
+    
+    /* Chat Input'u aşağı sabitleme (Streamlit default ama garanti olsun) */
+    .stChatInput { position: fixed; bottom: 0px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. VERİTABANI VE ARAÇLAR ---
+# --- VERİTABANI ---
 @st.cache_resource
 def get_supabase_client():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -86,141 +58,128 @@ supabase = get_supabase_client()
 def get_tr_time():
     return datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
 
-def daktilo_efekti(metin, alan=None):
-    if alan is None: alan = st.empty()
-    gecici_metin = ""
-    for harf in metin:
-        gecici_metin += harf
-        alan.markdown(gecici_metin + "▌")
-        time.sleep(0.003) 
-    alan.markdown(gecici_metin)
+def daktilo_efekti(metin):
+    alan = st.empty()
+    gecici = ""
+    for h in metin:
+        gecici += h
+        alan.markdown(gecici + "▌")
+        time.sleep(0.003)
+    alan.markdown(gecici)
 
-# --- 3. OTURUM YÖNETİMİ ---
+# --- SESSION STATE ---
 if "messages" not in st.session_state: st.session_state.messages = []
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
-if "auth_mode" not in st.session_state: st.session_state.auth_mode = "login"
+if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0 # Admin analizi için
 
-# --- 4. GİRİŞ VE KAYIT EKRANI (KOYU MOD UYUMLU) ---
+# --- GİRİŞ EKRANI (TAB YAPISI - İSTEK 4) ---
 if not st.session_state.logged_in:
-    st.markdown("<br><br>", unsafe_allow_html=True) # Üstten boşluk
-    _, col_login, _ = st.columns([1, 1.5, 1])
+    st.markdown("<br><br><h1 style='text-align: center;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
     
-    with col_login:
-        st.markdown("<h1 style='text-align: center;'>🎓 Mevzuat Giriş</h1>", unsafe_allow_html=True)
+    _, col_main, _ = st.columns([1, 1.5, 1])
+    with col_main:
+        # İki Sekmeli Yapı: Giriş Yap | Kayıt Ol
+        tab_login, tab_signup = st.tabs(["🔑 Giriş Yap", "📝 Kayıt Ol"])
         
-        # Giriş Formu Konteynerı
-        with st.container():
-            st.markdown('<div class="login-container">', unsafe_allow_html=True)
-            
-            if st.session_state.auth_mode == "login":
+        with tab_login:
+            with st.form("login_form"):
                 u = st.text_input("Kullanıcı Adı")
                 p = st.text_input("Şifre", type="password")
-                
-                col_btn1, col_btn2 = st.columns([1, 1])
-                with col_btn1:
-                    if st.button("Giriş Yap", use_container_width=True):
-                        res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
-                        if res.data:
-                            st.session_state.logged_in = True
-                            st.session_state.username = res.data[0]['username']
-                            st.session_state.role = res.data[0]['role']
-                            st.rerun()
-                        else: st.error("❌ Hatalı bilgiler!")
-                with col_btn2:
-                    if st.button("Kayıt Ol", use_container_width=True):
-                        st.session_state.auth_mode = "signup"
+                if st.form_submit_button("Giriş Yap", type="primary"):
+                    res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
+                    if res.data:
+                        st.session_state.logged_in = True
+                        st.session_state.username = res.data[0]['username']
+                        st.session_state.role = res.data[0]['role']
                         st.rerun()
+                    else: st.error("Bilgiler hatalı!")
 
-            else: # KAYIT MODU
-                st.subheader("📝 Yeni Hesap Oluştur")
-                nu = st.text_input("Belirleyeceğiniz Kullanıcı Adı")
-                np = st.text_input("Şifreniz", type="password")
-                
-                if st.button("Kaydı Tamamla", use_container_width=True):
+        with tab_signup:
+            with st.form("signup_form"):
+                new_u = st.text_input("Belirleyeceğiniz Kullanıcı Adı")
+                new_p = st.text_input("Yeni Şifre", type="password")
+                if st.form_submit_button("Kayıt Ol"):
                     try:
-                        supabase.table("kullanicilar").insert({"username": nu, "password": np, "role": "student"}).execute()
-                        st.success("Kayıt başarılı! Giriş yapabilirsiniz.")
-                        time.sleep(1.5)
-                        st.session_state.auth_mode = "login"
-                        st.rerun()
-                    except: st.error("Bu kullanıcı adı zaten alınmış!")
-                
-                if st.button("Geri Dön"):
-                    st.session_state.auth_mode = "login"
-                    st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
+                        supabase.table("kullanicilar").insert({"username": new_u, "password": new_p, "role": "student"}).execute()
+                        st.success("Kayıt Başarılı! 'Giriş Yap' sekmesinden girebilirsiniz.")
+                    except: st.error("Bu kullanıcı adı dolu.")
     st.stop()
 
-# --- 5. SIDEBAR ---
+# --- SIDEBAR (ANALİZ VE YÖNETİM - İSTEK 3) ---
 with st.sidebar:
+    # Kullanıcı Bilgisi
     st.markdown(f"""
         <div class="user-card">
-            <h3>👤 {st.session_state.username.upper()}</h3>
-            <p style='color:#9ca3af; margin:0;'>{st.session_state.role.capitalize()} Yetkisi</p>
+            <h3>{st.session_state.username.upper()}</h3>
+            <small>{st.session_state.role.upper()} HESABI</small>
         </div>
     """, unsafe_allow_html=True)
+
+    # Sadece ADMİN Analizleri Görür
+    if st.session_state.role == 'admin':
+        st.subheader("📊 Sistem Analizi")
+        st.info(f"Toplam Sorgu: {st.session_state.sorgu_sayaci}")
+        st.markdown("**Son Merak Edilenler:**")
+        # Gerçek bir veritabanı tablosu olsaydı buradan çekerdik
+        # Şimdilik session içindeki son soruları gösterelim
+        if len(st.session_state.messages) > 0:
+            son_sorular = [m['content'] for m in st.session_state.messages if m['role'] == 'user'][-3:]
+            for s in son_sorular:
+                st.caption(f"🔹 {s[:40]}...")
+        st.divider()
+
+    # PDF Yükleme (Herkes veya sadece Admin)
+    st.subheader("📁 Veri Tabanı")
+    uploaded_files = st.file_uploader("PDF Ekle", accept_multiple_files=True, type=['pdf'])
     
-    st.subheader("📂 Veri Yönetimi")
-    uploaded_files = st.file_uploader("PDF Dosyalarını Seçin", accept_multiple_files=True, type=['pdf'])
-    
-    if st.button("🚀 Veritabanını Güncelle", type="primary"):
+    if st.button("Veritabanını Güncelle", type="primary"):
         if uploaded_files:
-            durum = st.status("Analiz başlatıldı...", expanded=True)
-            durum.write("📄 PDF içerikleri taranıyor...")
+            durum = st.status("İşleniyor...", expanded=True)
             st.session_state.vector_db = process_pdfs(uploaded_files)
-            durum.write("🧠 Yapay zeka hafızası güncelleniyor...")
-            durum.update(label="✅ Hazır! Sorularınızı sorabilirsiniz.", state="complete")
-        else: st.warning("Lütfen dosya yükleyin.")
-
+            durum.update(label="✅ Veritabanı Güncel!", state="complete")
+    
     st.divider()
-
-    if st.session_state.messages:
-        tr_now = get_tr_time()
-        log = f"🎓 SOHBET KAYDI - {tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*40 + "\n\n"
-        for m in st.session_state.messages:
-            log += f"[{m['role'].upper()}]: {m['content']}\n\n"
-        st.download_button("📥 Sohbeti İndir", log, file_name=f"chat_{tr_now.strftime('%H%M')}.txt", use_container_width=True)
-
-    if st.button("🚪 Çıkış Yap"):
+    if st.button("Çıkış Yap"):
         st.session_state.logged_in = False
         st.rerun()
 
-# --- 6. ANA EKRAN ---
-st.title("🎓 Kampüs Mevzuat Asistanı")
-tab1, tab2 = st.tabs(["💬 Sohbet", "📊 Analiz"])
+# --- ANA SOHBET EKRANI (İSTEK 1 & 2 & 5) ---
+st.title("💬 Mevzuat Asistanı")
 
-with tab1:
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]):
-            st.markdown(m["content"])
+# Mesajları Göster
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
 
-    if prompt := st.chat_input("Mevzuat hakkında merak ettiklerinizi sorun..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+# Chat Input (En altta sabit)
+if prompt := st.chat_input("Sorunuzu buraya yazın..."):
+    # 1. Kullanıcı mesajını ekle
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    st.session_state.sorgu_sayaci += 1 # Analiz sayacını artır
+    with st.chat_message("user"):
+        st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            with st.spinner("Gemini 2.5 Flash mevzuatı tarıyor..."):
-                # generation.py'den gelen fonksiyon (hem cevap hem kaynak döner)
-                sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-                
-                # Sadece cevabı daktilo efektiyle yaz
-                daktilo_efekti(sonuc["answer"])
-                
-                # Kaynakları göster
-                if sonuc.get("sources"):
-                    kaynak_metni = "\n\n📚 **Kaynaklar:**\n" + "\n".join([f"- {k}" for k in sonuc["sources"]])
-                    st.markdown(kaynak_metni)
-                    tam_cevap = sonuc["answer"] + kaynak_metni
-                else:
-                    tam_cevap = sonuc["answer"]
-                
-                st.session_state.messages.append({"role": "assistant", "content": tam_cevap})
-
-with tab2:
-    st.subheader("📑 Yüklenen Dokümanlar")
-    if uploaded_files:
-        st.info(f"{len(uploaded_files)} adet doküman analiz edildi.")
-        for f in uploaded_files: st.write(f"✅ {f.name}")
-    else: st.warning("Doküman bulunamadı.")
+    # 2. Asistan cevabı
+    with st.chat_message("assistant"):
+        with st.spinner("Araştırılıyor..."):
+            sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
+            
+            # Cevabı yaz
+            daktilo_efekti(sonuc["answer"])
+            
+            # Kaynakları Şık Göster (İstek 2)
+            if sonuc["sources"]:
+                st.markdown("---")
+                st.caption("📚 **Referans Dokümanlar:**")
+                # Her kaynağı yan yana etiket gibi göstermek için columns
+                cols = st.columns(len(sonuc["sources"]))
+                for idx, src in enumerate(sonuc["sources"]):
+                    # Dosya adı ve sayfa numarasını temiz göster
+                    # Örn: lisans_yonetmeligi.pdf (Sayfa 5)
+                    st.success(f"📄 {src}")
+            
+            # Tam cevabı hafızaya kaydet
+            full_resp = sonuc["answer"]
+            if sonuc["sources"]:
+                full_resp += "\n\n📚 Kaynaklar:\n" + "\n".join(sonuc["sources"])
+            st.session_state.messages.append({"role": "assistant", "content": full_resp})
