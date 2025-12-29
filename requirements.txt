@@ -4,9 +4,8 @@ langchain
 langchain-community
 langchain-google-genai
 langchain-pinecone
-pinecone-client
+pinecone
 sentence-transformers
 pypdf
 python-dotenv
 pandas
-faiss-cpu
