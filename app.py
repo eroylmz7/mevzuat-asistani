@@ -4,7 +4,16 @@ import pytz
 import time
 import pandas as pd
 import os
+import asyncio # <-- YENİ EKLENDİ
 from supabase import create_client
+
+# --- KRİTİK HATA DÜZELTİCİ (Asyncio Fix) ---
+# Python 3.11+ ve Streamlit uyumsuzluğunu çözer
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# -------------------------------------------
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
