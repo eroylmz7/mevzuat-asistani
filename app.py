@@ -4,34 +4,22 @@ import pytz
 import time
 from supabase import create_client
 
-# Modülleri yükle
+# --- MODÜLLER ---
 try:
     from data_ingestion import process_pdfs 
     from generation import generate_answer 
 except ImportError:
-    st.error("⚠️ Modüller yüklenemedi!")
+    st.error("⚠️ Modüller yüklenemedi! (data_ingestion.py veya generation.py eksik)")
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# CSS DÜZELTMELERİ (Chat Bar Aşağıda, Renkler Düzgün)
+# --- CSS İYİLEŞTİRMELERİ ---
 st.markdown("""
     <style>
+    /* Genel Koyu Tema */
     .stApp { background-color: #0e1117; color: #fafafa; }
     [data-testid="stSidebar"] { background-color: #262730; }
-    
-    /* Sekme (Tab) Tasarımı */
-    .stTabs [data-baseweb="tab-list"] button {
-        flex: 1; /* Sekmeleri eşit genişlikte yap */
-        background-color: #1f2937;
-        color: white;
-        border-radius: 5px;
-        margin: 2px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #3b82f6 !important;
-        font-weight: bold;
-    }
     
     /* Kullanıcı Kartı */
     .user-card {
@@ -43,12 +31,25 @@ st.markdown("""
         margin-bottom: 20px;
     }
     
-    /* Chat Input'u aşağı sabitleme (Streamlit default ama garanti olsun) */
-    .stChatInput { position: fixed; bottom: 0px; }
+    /* Kaynak Gösterimi (Daha kompakt ve şık) */
+    .source-tag {
+        display: inline-block;
+        background-color: #1f2937;
+        color: #9ca3af;
+        padding: 4px 10px;
+        border-radius: 15px;
+        font-size: 0.85em;
+        margin-right: 5px;
+        margin-bottom: 5px;
+        border: 1px solid #374151;
+    }
+    
+    /* Butonlar */
+    .stButton>button { width: 100%; border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- VERİTABANI ---
+# --- YARDIMCI FONKSİYONLAR ---
 @st.cache_resource
 def get_supabase_client():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -67,18 +68,20 @@ def daktilo_efekti(metin):
         time.sleep(0.003)
     alan.markdown(gecici)
 
-# --- SESSION STATE ---
-if "messages" not in st.session_state: st.session_state.messages = []
-if "logged_in" not in st.session_state: st.session_state.logged_in = False
-if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0 # Admin analizi için
+# --- STATE YÖNETİMİ ---
+# Başlangıç mesajı eklendi (İstek 3)
+if "messages" not in st.session_state: 
+    st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı, dersler veya yönetmelikler hakkında ne öğrenmek istersiniz?"}]
 
-# --- GİRİŞ EKRANI (TAB YAPISI - İSTEK 4) ---
+if "logged_in" not in st.session_state: st.session_state.logged_in = False
+if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
+
+# --- GİRİŞ EKRANI (TABLI YAPI) ---
 if not st.session_state.logged_in:
     st.markdown("<br><br><h1 style='text-align: center;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
     
     _, col_main, _ = st.columns([1, 1.5, 1])
     with col_main:
-        # İki Sekmeli Yapı: Giriş Yap | Kayıt Ol
         tab_login, tab_signup = st.tabs(["🔑 Giriş Yap", "📝 Kayıt Ol"])
         
         with tab_login:
@@ -105,9 +108,9 @@ if not st.session_state.logged_in:
                     except: st.error("Bu kullanıcı adı dolu.")
     st.stop()
 
-# --- SIDEBAR (ANALİZ VE YÖNETİM - İSTEK 3) ---
+# --- SIDEBAR (SOL MENÜ) ---
 with st.sidebar:
-    # Kullanıcı Bilgisi
+    # Kullanıcı Kartı
     st.markdown(f"""
         <div class="user-card">
             <h3>{st.session_state.username.upper()}</h3>
@@ -115,20 +118,11 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-    # Sadece ADMİN Analizleri Görür
-    if st.session_state.role == 'admin':
-        st.subheader("📊 Sistem Analizi")
-        st.info(f"Toplam Sorgu: {st.session_state.sorgu_sayaci}")
-        st.markdown("**Son Merak Edilenler:**")
-        # Gerçek bir veritabanı tablosu olsaydı buradan çekerdik
-        # Şimdilik session içindeki son soruları gösterelim
-        if len(st.session_state.messages) > 0:
-            son_sorular = [m['content'] for m in st.session_state.messages if m['role'] == 'user'][-3:]
-            for s in son_sorular:
-                st.caption(f"🔹 {s[:40]}...")
-        st.divider()
+    # 1. NAVİGASYON (İstek 2: Analiz kısmı seçilebilir oldu)
+    secilen_mod = st.radio("Mod Seçiniz:", ["💬 Sohbet Asistanı", "📊 Sistem Analizi"])
+    st.divider()
 
-    # PDF Yükleme (Herkes veya sadece Admin)
+    # 2. PDF YÜKLEME
     st.subheader("📁 Veri Tabanı")
     uploaded_files = st.file_uploader("PDF Ekle", accept_multiple_files=True, type=['pdf'])
     
@@ -139,47 +133,92 @@ with st.sidebar:
             durum.update(label="✅ Veritabanı Güncel!", state="complete")
     
     st.divider()
-    if st.button("Çıkış Yap"):
+
+    # 3. SOHBETİ İNDİR (İstek 5: Çıkış'ın hemen üstünde)
+    if st.session_state.messages:
+        tr_saat = get_tr_time()
+        log = f"🎓 MEVZUAT SOHBET KAYDI - {tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*40 + "\n\n"
+        for m in st.session_state.messages:
+            log += f"[{m['role'].upper()}]: {m['content']}\n\n"
+        
+        st.download_button(
+            label="📥 Sohbeti İndir (.txt)",
+            data=log,
+            file_name=f"sohbet_{tr_saat.strftime('%H%M')}.txt",
+            mime="text/plain"
+        )
+
+    # 4. ÇIKIŞ YAP
+    if st.button("🚪 Çıkış Yap"):
         st.session_state.logged_in = False
         st.rerun()
 
-# --- ANA SOHBET EKRANI (İSTEK 1 & 2 & 5) ---
-st.title("💬 Mevzuat Asistanı")
+# --- ANA EKRAN YÖNETİMİ ---
 
-# Mesajları Göster
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
+if secilen_mod == "💬 Sohbet Asistanı":
+    # --- SOHBET MODU ---
+    st.title("💬 Mevzuat Asistanı")
 
-# Chat Input (En altta sabit)
-if prompt := st.chat_input("Sorunuzu buraya yazın..."):
-    # 1. Kullanıcı mesajını ekle
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.session_state.sorgu_sayaci += 1 # Analiz sayacını artır
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    # Mesajları Listele
+    for m in st.session_state.messages:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
 
-    # 2. Asistan cevabı
-    with st.chat_message("assistant"):
-        with st.spinner("Araştırılıyor..."):
-            sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-            
-            # Cevabı yaz
-            daktilo_efekti(sonuc["answer"])
-            
-            # Kaynakları Şık Göster (İstek 2)
-            if sonuc["sources"]:
-                st.markdown("---")
-                st.caption("📚 **Referans Dokümanlar:**")
-                # Her kaynağı yan yana etiket gibi göstermek için columns
-                cols = st.columns(len(sonuc["sources"]))
-                for idx, src in enumerate(sonuc["sources"]):
-                    # Dosya adı ve sayfa numarasını temiz göster
-                    # Örn: lisans_yonetmeligi.pdf (Sayfa 5)
-                    st.success(f"📄 {src}")
-            
-            # Tam cevabı hafızaya kaydet
-            full_resp = sonuc["answer"]
-            if sonuc["sources"]:
-                full_resp += "\n\n📚 Kaynaklar:\n" + "\n".join(sonuc["sources"])
-            st.session_state.messages.append({"role": "assistant", "content": full_resp})
+    # Chat Input (İstek 1: CSS kaldırıldığı için artık tam genişlikte)
+    if prompt := st.chat_input("Sorunuzu buraya yazın..."):
+        # 1. Kullanıcı mesajı
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.sorgu_sayaci += 1
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # 2. Asistan cevabı
+        with st.chat_message("assistant"):
+            with st.spinner("Araştırılıyor..."):
+                sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
+                
+                # Cevabı yaz
+                daktilo_efekti(sonuc["answer"])
+                
+                # Kaynakları Kompakt Göster (İstek 4)
+                if sonuc["sources"]:
+                    st.markdown("---")
+                    st.caption("📚 **Referans Kaynaklar:**")
+                    
+                    # HTML ile yan yana şık etiketler oluşturuyoruz
+                    html_sources = ""
+                    for src in sonuc["sources"]:
+                        html_sources += f'<span class="source-tag">📄 {src}</span>'
+                    st.markdown(html_sources, unsafe_allow_html=True)
+                
+                # Hafızaya kaydet
+                full_resp = sonuc["answer"]
+                if sonuc["sources"]:
+                    full_resp += "\n\nKaynaklar: " + ", ".join(sonuc["sources"])
+                st.session_state.messages.append({"role": "assistant", "content": full_resp})
+
+elif secilen_mod == "📊 Sistem Analizi":
+    # --- ANALİZ MODU (Sadece Admin veya Herkes?) ---
+    # Eğer sadece admin görsün istiyorsan: if st.session_state.role == 'admin': altına alabilirsin.
+    
+    st.title("📊 Sistem Analiz Paneli")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.info(f"**Toplam Yapılan Sorgu:** {st.session_state.sorgu_sayaci}")
+    with col2:
+        st.success(f"**Aktif Doküman Sayısı:** {len(uploaded_files) if uploaded_files else 0}")
+
+    st.divider()
+    
+    st.subheader("📌 Son Yapılan Sorgular (Oturum Bazlı)")
+    if len(st.session_state.messages) > 1:
+        # Sadece user mesajlarını al
+        user_msgs = [m['content'] for m in st.session_state.messages if m['role'] == 'user']
+        for i, msg in enumerate(reversed(user_msgs)):
+            st.markdown(f"**{i+1}.** {msg}")
+    else:
+        st.caption("Henüz bir sorgu yapılmadı.")
+    
+    if st.session_state.role != 'admin':
+        st.warning("Not: Daha detaylı analizler için Yönetici yetkisi gereklidir.")
