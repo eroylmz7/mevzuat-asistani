@@ -2,11 +2,9 @@ streamlit
 supabase
 langchain
 langchain-community
-langchain-core
-langchain-text-splitters
 langchain-google-genai
 langchain-pinecone
-pinecone-client
+pinecone
 sentence-transformers
 pypdf
 python-dotenv
