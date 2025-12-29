@@ -5,18 +5,21 @@ import time
 import pandas as pd
 import os
 from supabase import create_client
-from langchain_pinecone import PineconeVectorStore
-from langchain_community.embeddings import HuggingFaceEmbeddings
 
-# --- MODÜLLER ---
+# --- SAYFA AYARLARI (En başta olmalı) ---
+st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
+
+# --- MODÜLLERİ GÜVENLİ YÜKLEME ---
 try:
+    # Gerekli kütüphaneleri burada import ediyoruz ki hata varsa yakalayalım
+    from langchain_pinecone import PineconeVectorStore
+    from langchain_community.embeddings import HuggingFaceEmbeddings
     from data_ingestion import process_pdfs 
     from generation import generate_answer 
-except ImportError:
-    st.error("⚠️ Modüller eksik! Lütfen requirements.txt dosyasını kontrol edin.")
-
-# --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
+except ImportError as e:
+    st.error(f"⚠️ Kütüphane Hatası: {e}")
+    st.info("Lütfen 'requirements.txt' dosyanızın GitHub'da güncel olduğundan ve 'Manage App' -> 'Reboot' yaptığınızdan emin olun.")
+    st.stop() # Hata varsa uygulamayı durdur
 
 # --- CSS TASARIMI ---
 st.markdown("""
@@ -148,24 +151,27 @@ with st.sidebar:
     st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
 
     if st.session_state.role == 'admin':
-        # KEY EKLENDİ (HATAYI ÇÖZEN KISIM)
-        if st.button("📊 Analiz Paneli", key="btn_analiz_open"): st.session_state.analiz_acik = not st.session_state.analiz_acik
+        # KEY EKLENDİ - Duplicate ID Hatası İçin
+        if st.button("📊 Analiz Paneli", key="sidebar_analiz_btn"): 
+            st.session_state.analiz_acik = not st.session_state.analiz_acik
+        
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
             st.write(f"🔹 **Sorgu:** {st.session_state.sorgu_sayaci}")
             c1, c2 = st.columns(2)
             with c1:
-                # KEY EKLENDİ
-                if st.button("🔍 Büyüt", use_container_width=True, key="btn_analiz_fullscreen"):
+                if st.button("🔍 Büyüt", use_container_width=True, key="mini_analiz_fullscreen_btn"):
                     st.session_state.view_mode = "analysis_fullscreen"
                     st.rerun()
-            with c2: st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True, key="btn_download_report")
+            with c2: 
+                st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True, key="mini_analiz_download_btn")
             st.markdown('</div>', unsafe_allow_html=True)
         st.divider()
         st.subheader("📁 Veri Yönetimi")
-        uploaded_files = st.file_uploader("PDF Yükle (Buluta)", accept_multiple_files=True, type=['pdf'])
-        # KEY EKLENDİ
-        if st.button("Veritabanını Güncelle", key="btn_update_db"):
+        # PDF Uploader için key gerekmez ama buton için gerekir
+        uploaded_files = st.file_uploader("PDF Yükle (Buluta)", accept_multiple_files=True, type=['pdf'], key="admin_pdf_uploader")
+        
+        if st.button("Veritabanını Güncelle", key="sidebar_update_db_btn"):
             if uploaded_files:
                 durum = st.status("Pinecone bulutuna yükleniyor...", expanded=True)
                 st.session_state.vector_db = process_pdfs(uploaded_files)
@@ -177,18 +183,15 @@ with st.sidebar:
         tr_saat = get_tr_time()
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
-        # KEY EKLENDİ
-        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True, key="btn_download_chat")
+        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True, key="sidebar_chat_download_btn")
+    
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    # KEY EKLENDİ
-    if st.button("🗑️ Temizle", use_container_width=True, key="btn_clear_chat"):
+    if st.button("🗑️ Temizle", use_container_width=True, key="sidebar_clear_chat_btn"):
         st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
         st.session_state.sorgu_sayaci = 0
         st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
-    
-    # KEY EKLENDİ
-    if st.button("🚪 Çıkış", type="secondary", use_container_width=True, key="btn_logout"):
+    if st.button("🚪 Çıkış", type="secondary", use_container_width=True, key="sidebar_logout_btn"):
         st.session_state.logged_in = False
         st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
         st.session_state.view_mode = "chat"
@@ -220,8 +223,7 @@ if st.session_state.view_mode == "analysis_fullscreen":
             msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
             for m in reversed(msgs[-8:]): st.code(m[:50]+"...", language="text")
         st.markdown("<br>", unsafe_allow_html=True)
-        # KEY EKLENDİ
-        if st.button("🔙 Geri Dön", type="primary", key="btn_back_to_chat"):
+        if st.button("🔙 Geri Dön", type="primary", key="fullscreen_back_btn"):
             st.session_state.view_mode = "chat"
             st.rerun()
 
