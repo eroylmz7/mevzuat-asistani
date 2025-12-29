@@ -58,13 +58,26 @@ def daktilo_efekti(metin):
         time.sleep(0.003)
     alan.markdown(gecici)
 
-def analiz_raporu_olustur():
-    tr_now = get_tr_time()
-    user_msgs = [m['content'] for m in st.session_state.messages if m['role'] == 'user']
-    rapor = f"📊 SİSTEM RAPORU\n{tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n\n"
-    rapor += f"🔹 Toplam Sorgu: {st.session_state.sorgu_sayaci}\n"
-    rapor += f"🔹 Mesajlar: {len(user_msgs)}\n"
-    return rapor
+# --- YENİ LOGLAMA SİSTEMİ (BULUTA KAYIT) ---
+def log_kaydet(kullanici, soru, cevap):
+    try:
+        supabase.table("sorgu_loglari").insert({
+            "kullanici_adi": kullanici,
+            "soru": soru,
+            "cevap": cevap
+        }).execute()
+    except Exception as e:
+        print(f"Log Hatası: {e}")
+
+# --- YENİ ANALİZ SİSTEMİ (BULUTTAN OKUMA) ---
+def admin_analiz_getir():
+    try:
+        # Tüm logları çek
+        response = supabase.table("sorgu_loglari").select("*").execute()
+        df = pd.DataFrame(response.data)
+        return df
+    except:
+        return pd.DataFrame()
 
 # --- BULUT BAĞLANTISI ---
 @st.cache_resource
@@ -82,9 +95,9 @@ def get_cloud_db():
 # --- STATE ---
 if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
-if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
+if "username" not in st.session_state: st.session_state.username = ""
+if "role" not in st.session_state: st.session_state.role = ""
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
-if "view_mode" not in st.session_state: st.session_state.view_mode = "chat"
 
 if "vector_db" not in st.session_state or st.session_state.vector_db is None:
     st.session_state.vector_db = get_cloud_db()
@@ -108,7 +121,6 @@ if not st.session_state.logged_in:
                             st.session_state.logged_in = True
                             st.session_state.username = res.data[0]['username']
                             st.session_state.role = res.data[0]['role']
-                            st.session_state.view_mode = "chat" 
                             st.rerun()
                         else: st.error("Hatalı giriş!")
             with tab_signup:
@@ -124,18 +136,35 @@ if not st.session_state.logged_in:
                         except: st.error("Kullanıcı adı alınmış.")
     st.stop()
 
-# --- SIDEBAR ---
+# --- SIDEBAR (ADMİN ÖZEL) ---
 with st.sidebar:
     rol_txt = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
     st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
 
     if st.session_state.role == 'admin':
         if st.button("📊 Analiz Paneli"): st.session_state.analiz_acik = not st.session_state.analiz_acik
+        
+        # --- GELİŞMİŞ ANALİZ (DATABASE) ---
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-            st.write(f"🔹 **Sorgu:** {st.session_state.sorgu_sayaci}")
-            st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True)
+            df_log = admin_analiz_getir()
+            
+            if not df_log.empty:
+                toplam_soru = len(df_log)
+                aktif_kullanici = df_log['kullanici_adi'].nunique()
+                
+                st.write(f"🔹 **Toplam Soru:** {toplam_soru}")
+                st.write(f"🔹 **Aktif Öğrenci:** {aktif_kullanici}")
+                
+                st.markdown("---")
+                st.caption("Son 5 Soru:")
+                st.dataframe(df_log[['kullanici_adi', 'soru']].tail(5), hide_index=True)
+            else:
+                st.write("Henüz veri yok.")
+            
             st.markdown('</div>', unsafe_allow_html=True)
+        # ----------------------------------
+        
         st.divider()
         st.subheader("📁 Veri Yönetimi")
         uploaded_files = st.file_uploader("PDF Yükle", accept_multiple_files=True, type=['pdf'])
@@ -145,7 +174,7 @@ with st.sidebar:
                 st.session_state.vector_db = process_pdfs(uploaded_files)
                 durum.update(label="✅ Güncelleme Tamamlandı!", state="complete")
         
-        # --- YÜKLÜ DOSYALARI LİSTELE ---
+        # --- YÜKLÜ DOSYALARI LİSTELE (DATABASE) ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("📚 SİSTEMDEKİ BELGELER")
         try:
@@ -161,15 +190,16 @@ with st.sidebar:
         st.divider()
 
     st.caption("İşlemler")
+    # Sohbet indirme
     if st.session_state.messages:
         tr_saat = get_tr_time()
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
         st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True)
+    
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
     if st.button("🗑️ Temizle", use_container_width=True):
         st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
-        st.session_state.sorgu_sayaci = 0
         st.rerun()
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -177,21 +207,17 @@ with st.sidebar:
     if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
         st.session_state.logged_in = False
         st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
-        st.session_state.view_mode = "chat"
-        st.session_state.sorgu_sayaci = 0
         st.session_state.username = ""
         st.session_state.role = ""
         st.rerun()
 
-# --- EKRANLAR ---
-# (Burada kod kısalığı için analiz ekranını sadeleştirdim, istersen ekleyebilirsin)
+# --- SOHBET EKRANI ---
 st.title("💬 Mevzuat Asistanı")
 for m in st.session_state.messages:
     with st.chat_message(m["role"]): st.markdown(m["content"])
 
 if prompt := st.chat_input("Sorunuzu yazın..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
-    st.session_state.sorgu_sayaci += 1
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
@@ -202,6 +228,12 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                 try:
                     sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
                     daktilo_efekti(sonuc["answer"])
+                    
+                    # --- SİHİRLİ DOKUNUŞ: LOGLAMA ---
+                    # Soruyu ve cevabı Supabase'e kaydediyoruz ki Admin görebilsin!
+                    log_kaydet(st.session_state.username, prompt, sonuc["answer"])
+                    # ---------------------------------
+                    
                     if sonuc["sources"]:
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.caption("📚 KAYNAKLAR")
