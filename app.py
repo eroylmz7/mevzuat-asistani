@@ -1,3 +1,14 @@
+import subprocess
+import sys
+
+# --- ZOMBİ DOSYA TEMİZLEYİCİ ---
+# Sunucuda takılı kalan hatalı paketi zorla siliyoruz.
+try:
+    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pinecone-plugin-inference"])
+    print("✅ Hatalı eklenti silindi.")
+except Exception:
+    pass
+# -------------------------------
 import streamlit as st
 import datetime
 import pytz

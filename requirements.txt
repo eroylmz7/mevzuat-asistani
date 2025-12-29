@@ -3,7 +3,6 @@ supabase
 langchain
 langchain-community
 langchain-google-genai
-# İşte sihirli değnek burası: 0.2.0 sürümü yeni Pinecone ismini destekleyen sürümdür.
 langchain-pinecone>=0.2.0
 pinecone>=3.0.0
 sentence-transformers
