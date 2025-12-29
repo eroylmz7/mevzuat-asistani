@@ -21,8 +21,8 @@ def generate_answer(question, vector_store, chat_history):
             history_text += f"{role}: {msg['content']}\n"
     
     # 3. Ayarlar
-    # Buluttan kaç parça belge getirsin? (k=5 idealdir)
-    retriever = vector_store.as_retriever(search_kwargs={"k": 5})
+    # Buluttan kaç parça belge getirsin? 
+    retriever = vector_store.as_retriever(search_kwargs={"k": 50})
 
     # Gemini Modelini Başlat
     llm = ChatGoogleGenerativeAI(
