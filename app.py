@@ -1,14 +1,16 @@
 import subprocess
 import sys
+import os
 
-# --- ZOMBİ DOSYA TEMİZLEYİCİ ---
-# Sunucuda takılı kalan hatalı paketi zorla siliyoruz.
+# --- 🧟 ZOMBİ DOSYA TEMİZLEYİCİ (EN BAŞTA OLMALI) ---
+# Bu kod, uygulama başlar başlamaz o hatalı paketi bulup yok eder.
 try:
+    print("🧹 Temizlik başlıyor...")
     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pinecone-plugin-inference"])
-    print("✅ Hatalı eklenti silindi.")
-except Exception:
-    pass
-# -------------------------------
+    print("✅ Zombi dosya başarıyla silindi!")
+except Exception as e:
+    print(f"⚠️ Temizlik sırasında not: {e}")
+# ----------------------------------------------------
 import streamlit as st
 import datetime
 import pytz
