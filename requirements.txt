@@ -3,7 +3,7 @@ supabase
 langchain
 langchain-community
 langchain-google-genai
-langchain-pinecone>=0.1.0
+langchain-pinecone
 pinecone>=3.0.0
 sentence-transformers
 pypdf
