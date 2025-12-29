@@ -6,22 +6,25 @@ import pandas as pd
 import os
 from supabase import create_client
 
-# --- SAYFA AYARLARI (En başta olmalı) ---
+# --- SAYFA ---
 st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
-# --- MODÜLLERİ GÜVENLİ YÜKLEME ---
+# --- HATA YAKALAYICI IMPORT ---
 try:
-    # Gerekli kütüphaneleri burada import ediyoruz ki hata varsa yakalayalım
     from langchain_pinecone import PineconeVectorStore
     from langchain_community.embeddings import HuggingFaceEmbeddings
+    # Önce modülleri import etmeyi dene
+    import data_ingestion
+    import generation
+    # Sonra fonksiyonları çek
     from data_ingestion import process_pdfs 
     from generation import generate_answer 
 except ImportError as e:
-    st.error(f"⚠️ Kütüphane Hatası: {e}")
-    st.info("Lütfen 'requirements.txt' dosyanızın GitHub'da güncel olduğundan ve 'Manage App' -> 'Reboot' yaptığınızdan emin olun.")
-    st.stop() # Hata varsa uygulamayı durdur
+    st.error(f"⚠️ Kritik Başlatma Hatası: {e}")
+    st.warning("Bu hata genellikle 'requirements.txt' uyumsuzluğundan veya 'generation.py' dosyasının bozuk olmasından kaynaklanır.")
+    st.stop()
 
-# --- CSS TASARIMI ---
+# --- CSS (Aynı Tasarım) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -35,7 +38,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- YARDIMCI FONKSİYONLAR ---
+# --- YARDIMCI ---
 @st.cache_resource
 def get_supabase_client():
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -57,47 +60,43 @@ def daktilo_efekti(metin):
 def analiz_raporu_olustur():
     tr_now = get_tr_time()
     user_msgs = [m['content'] for m in st.session_state.messages if m['role'] == 'user']
-    rapor = f"📊 SİSTEM RAPORU\n{tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n\n"
-    rapor += f"🔹 Toplam Sorgu: {st.session_state.sorgu_sayaci}\n"
-    rapor += f"🔹 Mesajlar: {len(user_msgs)}\n"
+    rapor = f"📊 RAPOR - {tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
+    rapor += f"Sorgu Sayısı: {st.session_state.sorgu_sayaci}\nMesaj Sayısı: {len(user_msgs)}\n"
     return rapor
 
 def detayli_konu_analizi():
     user_msgs = [m['content'].lower() for m in st.session_state.messages if m['role'] == 'user']
     if not user_msgs: return pd.DataFrame()
     kategoriler = {
-        "Sınav & Notlar": ["sınav", "vize", "final", "büt", "not", "ortalama", "gano"],
-        "Mezuniyet & Kredi": ["mezun", "kredi", "akts", "diploma", "yükü"],
-        "Staj & İşyeri": ["staj", "iş yeri", "pratik", "uygulama", "gün"],
-        "Kayıt & Ders Seçimi": ["kayıt", "ders", "seçmeli", "zorunlu", "ekle"],
-        "İzin & Haklar": ["izin", "mazeret", "dondurma", "rapor"]
+        "Sınav & Not": ["sınav", "vize", "final", "büt", "not", "ortalama"],
+        "Mezuniyet & Kredi": ["mezun", "kredi", "akts", "diploma"],
+        "Staj & İş": ["staj", "iş yeri", "pratik", "uygulama"],
+        "Ders & Kayıt": ["kayıt", "ders", "seçmeli", "zorunlu"],
+        "İzin & Hak": ["izin", "mazeret", "dondurma", "rapor"]
     }
     sonuclar = {k: 0 for k in kategoriler.keys()}
-    sonuclar["Diğer"] = 0
     for msg in user_msgs:
-        bulundu = False
         for kat, keywords in kategoriler.items():
             if any(k in msg for k in keywords):
                 sonuclar[kat] += 1
-                bulundu = True
                 break
-        if not bulundu: sonuclar["Diğer"] += 1
-    df = pd.DataFrame(list(sonuclar.items()), columns=["Kategori", "Adet"])
+    df = pd.DataFrame(list(sonuclar.items()), columns=["Konu", "Adet"])
     df = df[df["Adet"] > 0].sort_values(by="Adet", ascending=False)
-    df["Oran (%)"] = (df["Adet"] / len(user_msgs)) * 100
+    if not df.empty: df["Oran"] = (df["Adet"] / len(user_msgs)) * 100
     return df
 
-# --- BULUT BAĞLANTISI ---
+# --- BULUT DB ---
 @st.cache_resource
 def get_cloud_db():
     try:
+        # Import buraya taşındı (Lazy Loading)
+        from langchain_pinecone import PineconeVectorStore
         os.environ['PINECONE_API_KEY'] = st.secrets["PINECONE_API_KEY"]
         embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-        index_name = "mevzuat-asistani"
-        vector_store = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embedding_model)
-        return vector_store
+        # Mevcut indexe bağlan
+        return PineconeVectorStore.from_existing_index(index_name="mevzuat-asistani", embedding=embedding_model)
     except Exception as e:
-        print(f"Pinecone Hatası: {e}")
+        print(f"DB Hatası: {e}")
         return None
 
 # --- STATE ---
@@ -106,154 +105,112 @@ if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
 if "view_mode" not in st.session_state: st.session_state.view_mode = "chat"
-
 if "vector_db" not in st.session_state or st.session_state.vector_db is None:
     st.session_state.vector_db = get_cloud_db()
 
-# --- GİRİŞ EKRANI ---
+# --- GİRİŞ ---
 if not st.session_state.logged_in:
-    st.markdown("<br><br><h1 style='text-align: center; color: white;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
+    st.markdown("<br><h1 style='text-align: center; color: white;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
     _, col_main, _ = st.columns([1, 1.5, 1])
     with col_main:
-        with st.container():
-            tab_login, tab_signup = st.tabs(["🔑 Giriş Yap", "📝 Kayıt Ol"])
-            with tab_login:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.form("login_form"):
-                    u = st.text_input("Kullanıcı Adı")
-                    p = st.text_input("Şifre", type="password")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Giriş Yap", type="primary"): 
-                        res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
-                        if res.data:
-                            st.session_state.logged_in = True
-                            st.session_state.username = res.data[0]['username']
-                            st.session_state.role = res.data[0]['role']
-                            st.session_state.view_mode = "chat"
-                            st.rerun()
-                        else: st.error("Hatalı giriş!")
-            with tab_signup:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.form("signup_form"):
-                    new_u = st.text_input("Kullanıcı Adı")
-                    new_p = st.text_input("Şifre", type="password")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Hesap Oluştur", type="primary"):
-                        try:
-                            supabase.table("kullanicilar").insert({"username": new_u, "password": new_p, "role": "student"}).execute()
-                            st.success("Başarılı! Giriş yapabilirsiniz.")
-                        except: st.error("Kullanıcı adı alınmış.")
+        tab1, tab2 = st.tabs(["Giriş Yap", "Kayıt Ol"])
+        with tab1:
+            with st.form("login"):
+                u = st.text_input("Kullanıcı Adı")
+                p = st.text_input("Şifre", type="password")
+                if st.form_submit_button("Giriş", type="primary"):
+                    res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
+                    if res.data:
+                        st.session_state.logged_in = True
+                        st.session_state.username = res.data[0]['username']
+                        st.session_state.role = res.data[0]['role']
+                        st.session_state.view_mode = "chat"
+                        st.rerun()
+                    else: st.error("Hatalı!")
+        with tab2:
+            with st.form("signup"):
+                nu = st.text_input("Kullanıcı Adı")
+                np = st.text_input("Şifre", type="password")
+                if st.form_submit_button("Kayıt Ol", type="primary"):
+                    try:
+                        supabase.table("kullanicilar").insert({"username": nu, "password": np, "role": "student"}).execute()
+                        st.success("Kayıt Başarılı!")
+                    except: st.error("Kullanıcı adı dolu.")
     st.stop()
 
 # --- SIDEBAR ---
 with st.sidebar:
-    rol_txt = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
-    st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
-
+    rol = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
+    st.markdown(f"""<div class="user-card"><h3>{st.session_state.username.upper()}</h3><p>{rol} HESABI</p></div>""", unsafe_allow_html=True)
+    
     if st.session_state.role == 'admin':
-        # KEY EKLENDİ - Duplicate ID Hatası İçin
-        if st.button("📊 Analiz Paneli", key="sidebar_analiz_btn"): 
-            st.session_state.analiz_acik = not st.session_state.analiz_acik
-        
+        if st.button("📊 Analiz", key="btn_analiz"): st.session_state.analiz_acik = not st.session_state.analiz_acik
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-            st.write(f"🔹 **Sorgu:** {st.session_state.sorgu_sayaci}")
+            st.write(f"Sorgu: {st.session_state.sorgu_sayaci}")
             c1, c2 = st.columns(2)
-            with c1:
-                if st.button("🔍 Büyüt", use_container_width=True, key="mini_analiz_fullscreen_btn"):
-                    st.session_state.view_mode = "analysis_fullscreen"
-                    st.rerun()
-            with c2: 
-                st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True, key="mini_analiz_download_btn")
+            if c1.button("🔍 Büyüt", key="btn_fs"): 
+                st.session_state.view_mode = "analysis_fullscreen"
+                st.rerun()
+            c2.download_button("📥 Rapor", analiz_raporu_olustur(), "r.txt", key="btn_dr")
             st.markdown('</div>', unsafe_allow_html=True)
         st.divider()
-        st.subheader("📁 Veri Yönetimi")
-        # PDF Uploader için key gerekmez ama buton için gerekir
-        uploaded_files = st.file_uploader("PDF Yükle (Buluta)", accept_multiple_files=True, type=['pdf'], key="admin_pdf_uploader")
-        
-        if st.button("Veritabanını Güncelle", key="sidebar_update_db_btn"):
-            if uploaded_files:
-                durum = st.status("Pinecone bulutuna yükleniyor...", expanded=True)
-                st.session_state.vector_db = process_pdfs(uploaded_files)
-                durum.update(label="✅ Bulut Güncellendi!", state="complete")
+        st.subheader("📁 Veri")
+        pdfs = st.file_uploader("PDF Yükle", accept_multiple_files=True, type=['pdf'], key="uploader")
+        if st.button("Güncelle", key="btn_upd"):
+            if pdfs:
+                st.status("Yükleniyor...").update(label="✅ Tamam!", state="complete")
+                st.session_state.vector_db = process_pdfs(pdfs)
         st.divider()
-
-    st.caption("İşlemler")
+    
     if st.session_state.messages:
-        tr_saat = get_tr_time()
-        log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
-        for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
-        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True, key="sidebar_chat_download_btn")
+        chat_log = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+        st.download_button("📥 Sohbeti İndir", chat_log, "chat.txt", key="btn_dl_chat", use_container_width=True)
     
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    if st.button("🗑️ Temizle", use_container_width=True, key="sidebar_clear_chat_btn"):
-        st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
-        st.session_state.sorgu_sayaci = 0
+    if st.button("🗑️ Temizle", key="btn_clr", use_container_width=True):
+        st.session_state.messages = [{"role": "assistant", "content": "Temizlendi."}]
         st.rerun()
+        
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🚪 Çıkış", type="secondary", use_container_width=True, key="sidebar_logout_btn"):
-        st.session_state.logged_in = False
-        st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
-        st.session_state.view_mode = "chat"
-        st.session_state.sorgu_sayaci = 0
-        st.session_state.username = ""
-        st.session_state.role = ""
+    if st.button("🚪 Çıkış", key="btn_logout", type="secondary", use_container_width=True):
+        st.session_state.clear()
         st.rerun()
 
 # --- EKRANLAR ---
-if st.session_state.view_mode == "analysis_fullscreen":
-    if st.session_state.role != 'admin':
+if st.session_state.view_mode == "analysis_fullscreen" and st.session_state.role == 'admin':
+    st.title("📊 İstatistikler")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Sorgu", st.session_state.sorgu_sayaci)
+    c2.metric("Durum", "Aktif")
+    c3.metric("Kullanıcı", st.session_state.username)
+    st.divider()
+    g1, g2 = st.columns([2, 1])
+    df = detayli_konu_analizi()
+    if not df.empty: g1.dataframe(df, use_container_width=True, hide_index=True)
+    else: g1.info("Veri yok")
+    msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
+    for m in reversed(msgs[-5:]): g2.code(m[:40]+"...", language="text")
+    if st.button("🔙 Dön", key="btn_back"):
         st.session_state.view_mode = "chat"
         st.rerun()
-    else:
-        st.title("📊 Sistem İstatistikleri")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Sorgu", st.session_state.sorgu_sayaci)
-        k2.metric("Durum", "Online (Pinecone)")
-        k3.metric("Kullanıcı", st.session_state.username)
-        st.divider()
-        g1, g2 = st.columns([2, 1])
-        with g1:
-            st.subheader("🔥 Konular")
-            df = detayli_konu_analizi()
-            if not df.empty: st.dataframe(df, use_container_width=True, hide_index=True)
-            else: st.info("Veri yok.")
-        with g2:
-            st.subheader("📝 Aktiviteler")
-            msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
-            for m in reversed(msgs[-8:]): st.code(m[:50]+"...", language="text")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔙 Geri Dön", type="primary", key="fullscreen_back_btn"):
-            st.session_state.view_mode = "chat"
-            st.rerun()
-
 else:
-    # --- SOHBET ---
     st.title("💬 Mevzuat Asistanı")
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]): st.markdown(m["content"])
-
-    if prompt := st.chat_input("Sorunuzu yazın..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
+    for m in st.session_state.messages: st.chat_message(m["role"]).markdown(m["content"])
+    if p := st.chat_input("Sorunuzu yazın..."):
+        st.session_state.messages.append({"role": "user", "content": p})
         st.session_state.sorgu_sayaci += 1
-        with st.chat_message("user"): st.markdown(prompt)
-
+        st.chat_message("user").markdown(p)
         with st.chat_message("assistant"):
-            if st.session_state.vector_db is None:
-                st.error("⚠️ Bulut veritabanına bağlanılamadı.")
+            if not st.session_state.vector_db:
+                st.error("⚠️ Veritabanı bağlı değil.")
             else:
-                with st.spinner("Bulut taranıyor..."):
-                    try:
-                        sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-                        daktilo_efekti(sonuc["answer"])
-                        if sonuc["sources"]:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.caption("📚 KAYNAKLAR")
-                            html_src = ""
-                            for src in sonuc["sources"]:
-                                html_src += f'<div class="source-item">📄 {src}</div>'
-                            st.markdown(html_src, unsafe_allow_html=True)
-                        full = sonuc["answer"] + ("\n\nKaynaklar:\n" + "\n".join(sonuc["sources"]) if sonuc["sources"] else "")
-                        st.session_state.messages.append({"role": "assistant", "content": full})
-                    except Exception as e:
-                        st.error(f"Hata: {e}")
+                with st.spinner("..."):
+                    res = generate_answer(p, st.session_state.vector_db, st.session_state.messages)
+                    daktilo_efekti(res["answer"])
+                    if res["sources"]:
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.caption("📚 Kaynaklar")
+                        for s in res["sources"]: st.markdown(f'<div class="source-item">📄 {s}</div>', unsafe_allow_html=True)
+                    full = res["answer"] + ("\n\nKaynaklar:\n" + "\n".join(res["sources"]) if res["sources"] else "")
+                    st.session_state.messages.append({"role": "assistant", "content": full})

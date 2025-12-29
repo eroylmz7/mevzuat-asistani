@@ -1,257 +1,83 @@
-import streamlit as st
-import datetime
-import pytz
-import time
-import pandas as pd
 import os
-from supabase import create_client
-from langchain_pinecone import PineconeVectorStore
+import streamlit as st
 from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
 
-# --- MODÜLLER ---
-try:
-    from data_ingestion import process_pdfs 
-    from generation import generate_answer 
-except ImportError:
-    st.error("⚠️ Modüller eksik!")
-
-# --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
-
-# --- CSS TASARIMI ---
-st.markdown("""
-    <style>
-    .stApp { background-color: #0f172a; color: #f8fafc; }
-    [data-testid="stSidebar"] { background-color: #1e293b; border-right: 1px solid #334155; }
-    .user-card { padding: 20px; background: linear-gradient(135deg, #2563eb, #1d4ed8); border-radius: 12px; color: white; text-align: center; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-    .stButton > button { width: 100%; background-color: #3b82f6; color: white !important; border: none; padding: 0.7rem 1rem; font-weight: 600; border-radius: 8px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-    .stButton > button:hover { background-color: #2563eb; transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0,0,0,0.2); }
-    .stDownloadButton > button { width: 100%; background-color: #475569; color: white !important; border-radius: 8px; font-weight: 500; }
-    .stats-box { background-color: #334155; padding: 15px; border-radius: 10px; border: 1px solid #475569; margin: 10px 0; }
-    .source-item { display: block; background-color: #334155; color: #e2e8f0; padding: 10px 15px; border-radius: 8px; font-size: 0.95em; margin-bottom: 8px; border-left: 5px solid #60a5fa; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- YARDIMCI FONKSİYONLAR ---
-@st.cache_resource
-def get_supabase_client():
-    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-
-supabase = get_supabase_client()
-
-def get_tr_time():
-    return datetime.datetime.now(pytz.timezone('Europe/Istanbul'))
-
-def daktilo_efekti(metin):
-    alan = st.empty()
-    gecici = ""
-    for h in metin:
-        gecici += h
-        alan.markdown(gecici + "▌")
-        time.sleep(0.003)
-    alan.markdown(gecici)
-
-def analiz_raporu_olustur():
-    tr_now = get_tr_time()
-    user_msgs = [m['content'] for m in st.session_state.messages if m['role'] == 'user']
-    rapor = f"📊 SİSTEM RAPORU\n{tr_now.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n\n"
-    rapor += f"🔹 Toplam Sorgu: {st.session_state.sorgu_sayaci}\n"
-    rapor += f"🔹 Mesajlar: {len(user_msgs)}\n"
-    return rapor
-
-def detayli_konu_analizi():
-    user_msgs = [m['content'].lower() for m in st.session_state.messages if m['role'] == 'user']
-    if not user_msgs: return pd.DataFrame()
-    kategoriler = {
-        "Sınav & Notlar": ["sınav", "vize", "final", "büt", "not", "ortalama", "gano"],
-        "Mezuniyet & Kredi": ["mezun", "kredi", "akts", "diploma", "yükü"],
-        "Staj & İşyeri": ["staj", "iş yeri", "pratik", "uygulama", "gün"],
-        "Kayıt & Ders Seçimi": ["kayıt", "ders", "seçmeli", "zorunlu", "ekle"],
-        "İzin & Haklar": ["izin", "mazeret", "dondurma", "rapor"]
-    }
-    sonuclar = {k: 0 for k in kategoriler.keys()}
-    sonuclar["Diğer"] = 0
-    for msg in user_msgs:
-        bulundu = False
-        for kat, keywords in kategoriler.items():
-            if any(k in msg for k in keywords):
-                sonuclar[kat] += 1
-                bulundu = True
-                break
-        if not bulundu: sonuclar["Diğer"] += 1
-    df = pd.DataFrame(list(sonuclar.items()), columns=["Kategori", "Adet"])
-    df = df[df["Adet"] > 0].sort_values(by="Adet", ascending=False)
-    df["Oran (%)"] = (df["Adet"] / len(user_msgs)) * 100
-    return df
-
-# --- BULUT BAĞLANTISI ---
-@st.cache_resource
-def get_cloud_db():
-    try:
-        os.environ['PINECONE_API_KEY'] = st.secrets["PINECONE_API_KEY"]
-        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-        index_name = "mevzuat-asistani"
-        vector_store = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embedding_model)
-        return vector_store
-    except Exception as e:
-        print(f"Pinecone Hatası: {e}")
-        return None
-
-# --- STATE ---
-if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
-if "logged_in" not in st.session_state: st.session_state.logged_in = False
-if "sorgu_sayaci" not in st.session_state: st.session_state.sorgu_sayaci = 0
-if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
-if "view_mode" not in st.session_state: st.session_state.view_mode = "chat"
-
-if "vector_db" not in st.session_state or st.session_state.vector_db is None:
-    st.session_state.vector_db = get_cloud_db()
-
-# --- GİRİŞ EKRANI ---
-if not st.session_state.logged_in:
-    st.markdown("<br><br><h1 style='text-align: center; color: white;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
-    _, col_main, _ = st.columns([1, 1.5, 1])
-    with col_main:
-        with st.container():
-            tab_login, tab_signup = st.tabs(["🔑 Giriş Yap", "📝 Kayıt Ol"])
-            with tab_login:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.form("login_form"):
-                    u = st.text_input("Kullanıcı Adı")
-                    p = st.text_input("Şifre", type="password")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Giriş Yap", type="primary"): 
-                        res = supabase.table("kullanicilar").select("*").eq("username", u).eq("password", p).execute()
-                        if res.data:
-                            st.session_state.logged_in = True
-                            st.session_state.username = res.data[0]['username']
-                            st.session_state.role = res.data[0]['role']
-                            # Giriş yaparken her şeyi sıfırla ki temiz başlasın
-                            st.session_state.view_mode = "chat" 
-                            st.rerun()
-                        else: st.error("Hatalı giriş!")
-            with tab_signup:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.form("signup_form"):
-                    new_u = st.text_input("Kullanıcı Adı")
-                    new_p = st.text_input("Şifre", type="password")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Hesap Oluştur", type="primary"):
-                        try:
-                            supabase.table("kullanicilar").insert({"username": new_u, "password": new_p, "role": "student"}).execute()
-                            st.success("Başarılı! Giriş yapabilirsiniz.")
-                        except: st.error("Kullanıcı adı alınmış.")
-    st.stop()
-
-# --- SIDEBAR ---
-with st.sidebar:
-    rol_txt = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
-    st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
-
-    if st.session_state.role == 'admin':
-        if st.button("📊 Analiz Paneli"): st.session_state.analiz_acik = not st.session_state.analiz_acik
-        if st.session_state.analiz_acik:
-            st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-            st.write(f"🔹 **Sorgu:** {st.session_state.sorgu_sayaci}")
-            c1, c2 = st.columns(2)
-            with c1:
-                if st.button("🔍 Büyüt", use_container_width=True):
-                    st.session_state.view_mode = "analysis_fullscreen"
-                    st.rerun()
-            with c2: st.download_button("📥 Rapor", analiz_raporu_olustur(), "analiz.txt", use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-        st.divider()
-        st.subheader("📁 Veri Yönetimi")
-        uploaded_files = st.file_uploader("PDF Yükle (Buluta)", accept_multiple_files=True, type=['pdf'])
-        if st.button("Veritabanını Güncelle"):
-            if uploaded_files:
-                durum = st.status("Pinecone bulutuna yükleniyor...", expanded=True)
-                st.session_state.vector_db = process_pdfs(uploaded_files)
-                durum.update(label="✅ Bulut Güncellendi!", state="complete")
-        st.divider()
-
-    st.caption("İşlemler")
-    if st.session_state.messages:
-        tr_saat = get_tr_time()
-        log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
-        for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
-        st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True)
-    st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
-    if st.button("🗑️ Temizle", use_container_width=True):
-        st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
-        st.session_state.sorgu_sayaci = 0
-        st.rerun()
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    # --- ÇIKIŞ YAP (DÜZELTME BURADA) ---
-    if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
-        # 1. Giriş durumunu kapat
-        st.session_state.logged_in = False
-        # 2. Sohbet geçmişini sil (Böylece Admin'in sohbeti öğrenciye kalmaz)
-        st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
-        # 3. Ekran modunu SOHBET'e zorla (Böylece öğrenci analiz ekranında kalmaz)
-        st.session_state.view_mode = "chat"
-        # 4. Diğer değişkenleri sıfırla
-        st.session_state.sorgu_sayaci = 0
-        st.session_state.username = ""
-        st.session_state.role = ""
-        st.rerun()
-
-# --- EKRANLAR ---
-if st.session_state.view_mode == "analysis_fullscreen":
-    if st.session_state.role != 'admin':
-        # Eğer bir şekilde buraya düşerse hemen sohbete at
-        st.session_state.view_mode = "chat"
-        st.rerun()
+def generate_answer(question, vector_store, chat_history):
+    # 1. API Key Kontrolü
+    if "GOOGLE_API_KEY" in st.secrets:
+        google_api_key = st.secrets["GOOGLE_API_KEY"]
     else:
-        st.title("📊 Sistem İstatistikleri")
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Sorgu", st.session_state.sorgu_sayaci)
-        k2.metric("Durum", "Online (Pinecone)")
-        k3.metric("Kullanıcı", st.session_state.username)
-        st.divider()
-        g1, g2 = st.columns([2, 1])
-        with g1:
-            st.subheader("🔥 Konular")
-            df = detayli_konu_analizi()
-            if not df.empty: st.dataframe(df, use_container_width=True, hide_index=True)
-            else: st.info("Veri yok.")
-        with g2:
-            st.subheader("📝 Aktiviteler")
-            msgs = [m['content'] for m in st.session_state.messages if m['role']=='user']
-            for m in reversed(msgs[-8:]): st.code(m[:50]+"...", language="text")
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🔙 Geri Dön", type="primary"):
-            st.session_state.view_mode = "chat"
-            st.rerun()
+        return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
+    
+    # 2. Sohbet Geçmişini Hazırla
+    history_text = ""
+    if chat_history:
+        # Son 4 mesajı alıp metne çeviriyoruz ki yapay zeka bağlamı anlasın
+        for msg in chat_history[-4:]:
+            role = "ÖĞRENCİ" if msg["role"] == "user" else "ASİSTAN"
+            history_text += f"{role}: {msg['content']}\n"
+    
+    # 3. Ayarlar
+    # Buluttan kaç parça belge getirsin? (k=5 idealdir)
+    retriever = vector_store.as_retriever(search_kwargs={"k": 5})
 
-else:
-    # --- SOHBET ---
-    st.title("💬 Mevzuat Asistanı")
-    for m in st.session_state.messages:
-        with st.chat_message(m["role"]): st.markdown(m["content"])
+    # Gemini Modelini Başlat
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-1.5-flash", # Hız ve performans için ideal
+        google_api_key=google_api_key,
+        temperature=0.3
+    )
 
-    if prompt := st.chat_input("Sorunuzu yazın..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.sorgu_sayaci += 1
-        with st.chat_message("user"): st.markdown(prompt)
+    # 4. Prompt (Yapay Zekaya Talimat)
+    template = f"""
+    Sen üniversite mevzuatları konusunda uzman yardımsever bir asistansın.
+    
+    Önceki Konuşmalar:
+    {history_text}
+    
+    Aşağıdaki MEVZUAT BİLGİSİ'ne göre soruyu cevapla.
+    MEVZUAT BİLGİSİ:
+    {{context}}
+    
+    SORU: {{question}}
+    
+    KURALLAR:
+    1. Sadece verilen mevzuat bilgisine dayanarak cevap ver.
+    2. Eğer bilgi dokümanlarda yoksa "Bu konuda dokümanlarda bilgi bulamadım" de, uydurma.
+    3. Cevabın net, anlaşılır ve öğrenciye yardımcı olacak tonda olsun.
+    
+    CEVAP:
+    """
+    
+    prompt_template = PromptTemplate(template=template, input_variables=["context", "question"])
 
-        with st.chat_message("assistant"):
-            if st.session_state.vector_db is None:
-                st.error("⚠️ Bulut veritabanına bağlanılamadı.")
-            else:
-                with st.spinner("Bulut taranıyor..."):
-                    try:
-                        sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-                        daktilo_efekti(sonuc["answer"])
-                        if sonuc["sources"]:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.caption("📚 KAYNAKLAR")
-                            html_src = ""
-                            for src in sonuc["sources"]:
-                                html_src += f'<div class="source-item">📄 {src}</div>'
-                            st.markdown(html_src, unsafe_allow_html=True)
-                        full = sonuc["answer"] + ("\n\nKaynaklar:\n" + "\n".join(sonuc["sources"]) if sonuc["sources"] else "")
-                        st.session_state.messages.append({"role": "assistant", "content": full})
-                    except Exception as e:
-                        st.error(f"Hata: {e}")
+    # 5. Zinciri Kur (Otomatik İşlem)
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        return_source_documents=True, # Kaynakları görmek istiyoruz
+        chain_type_kwargs={"prompt": prompt_template}
+    )
+
+    # 6. Çalıştır ve Sonucu Döndür
+    try:
+        result = qa_chain.invoke({"query": question})
+        answer = result["result"]
+        
+        # Kaynakları düzenle (Hangi dosya, hangi sayfa?)
+        sources = []
+        for doc in result["source_documents"]:
+            source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
+            # Sayfa numarası bazen 0'dan başlar, +1 ekliyoruz
+            page_num = int(doc.metadata.get("page", 0)) + 1
+            src_str = f"{source_name} (Sayfa {page_num})"
+            if src_str not in sources:
+                sources.append(src_str)
+        
+        return {"answer": answer, "sources": sources}
+        
+    except Exception as e:
+        return {"answer": f"Bir hata oluştu: {str(e)}", "sources": []}
