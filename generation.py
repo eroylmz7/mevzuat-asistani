@@ -64,22 +64,30 @@ def generate_answer(question, vector_store, chat_history):
         temperature=0.2 # Biraz esneklik iyidir ama çok değil.
     )
     
-    # İşte senin istediğin o "Tutarlı Format" burada sağlanıyor:
+    # PROMPT GÜNCELLEMESİ: "KAPSAM GENİŞLETME" EKLENDİ
     final_template = f"""
-    Sen üniversite mevzuat asistanısın. Görevin öğrencilerin sorularını RESMİ BELGELERE dayanarak cevaplamaktır.
-    
-    Aşağıdaki "BAĞLAM"ı dikkatlice oku ve "SORU"yu cevapla.
+    Sen bir üniversite mevzuat asistanısın. Görevin, aşağıdaki "BAĞLAM" içindeki bilgileri kullanarak soruya cevap vermektir.
     
     BAĞLAM (Dokümanlar):
     {context_text}
     
     SORU: {question}
     
-    --- KURALLAR VE FORMAT (ÖNEMLİ) ---
-    1. FORMAT: Cevabı her zaman okunabilirliği artırmak için ALT ALTA MADDELER (Bullet Points) halinde ver.
-    2. STAJ DURUMU: Öğrenci "Staj" kelimesini kullanırsa, bunu dokümanlardaki "Uygulamalı Eğitim" maddeleriyle eşleştir.
-    3. BAĞLAMSALLIK: Eğer cevap verilen metinlerde yoksa, "Verilen dokümanlarda bu bilgi yer almıyor" de. Dışarıdan bilgi uydurma.
-    4. TON: Resmi, yardımsever ve net ol.
+    --- KURALLAR (BU KURALLARA UYMAK ZORUNDASIN) ---
+    
+    1. 🛑 KRİTİK KURAL (BELGE LİSTESİ): 
+       Eğer kullanıcı "hangi formlar", "hangi belgeler", "neler gerekli" gibi bir soru sorarsa;
+       Sadece "başvuru" anını değil, stajın tamamını (Başlama, Sürdürme, Bitiş ve Değerlendirme) kapsayan **TÜM FORMLARIN LİSTESİNİ** eksiksiz dök.
+       (Örnek: Başvuru formu, Sözleşme, Rapor sayfası, Değerlendirme formu, Anket vb. hepsini yaz).
+    
+    2. 📜 FORMAT: 
+       Cevabı her zaman okunabilirliği artırmak için **ALT ALTA MADDELER (Bullet Points)** halinde ver.
+    
+    3. 🔄 EŞLEŞTİRME: 
+       "Staj" kelimesini "Uygulamalı Eğitim" ile eşdeğer tut.
+    
+    4. 🚫 DÜRÜSTLÜK: 
+       Eğer bağlamda bilgi yoksa "Dokümanlarda bu bilgi bulunamadı" de.
     
     CEVAP:
     """
