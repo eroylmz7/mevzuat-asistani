@@ -99,9 +99,16 @@ if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "username" not in st.session_state: st.session_state.username = ""
 if "role" not in st.session_state: st.session_state.role = ""
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
+# Mesaj geçmişi zaten vardır ama LangChain için chat_history de lazım
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+if "vector_store" not in st.session_state:
+    st.session_state.vector_store = None
 
 if "vector_db" not in st.session_state or st.session_state.vector_db is None:
     st.session_state.vector_db = get_cloud_db()
+
 
 # --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
@@ -298,8 +305,8 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        if st.session_state.chat_history is None: # Veya vector_store kontrolü
-             st.warning("⚠️ Lütfen önce giriş yapın veya sistemin hazır olmasını bekleyin.")
+        if "vector_store" not in st.session_state or st.session_state.vector_store is None:
+             st.warning("⚠️ Veritabanı bağlantısı yok. Lütfen sol menüden belge yükleyin veya 'Veritabanını Güncelle' deyin.")
         else:
             with st.spinner("Gemini (Cloud) düşünüyor..."):
                 try:
