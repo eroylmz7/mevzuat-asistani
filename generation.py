@@ -4,85 +4,82 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 
 def generate_answer(question, vector_store, chat_history):
-    # API Key Kontrolü
+    # --- 1. GÜVENLİK VE AYARLAR ---
     if "GOOGLE_API_KEY" in st.secrets:
         google_api_key = st.secrets["GOOGLE_API_KEY"]
     else:
-        return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
+        return {"answer": "Hata: Google API Key bulunamadı (secrets.toml dosyasını kontrol et).", "sources": []}
 
-    # --- ADIM 1: HİBRİT ARAMA TERİMİ OLUŞTURMA ---
-    # Hem öğrencinin dediğini hem de resmi karşılığını aynı anda arayacağız.
+    # --- 2. HİBRİT ARAMA (TERİM ZENGİNLEŞTİRME) ---
+    # Gemini Flash çok ucuz ve hızlı olduğu için bu ön işlemi yapmak harika bir fikir.
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.1 
+        temperature=0.0 # Yaratıcılık sıfır olsun, sadece çeviri yapsın.
     )
     
+    # Prompt'u biraz daha "Emir kipi" ile yazdık ki sohbet etmeye çalışmasın.
     translation_prompt = f"""
-    GÖREV: Öğrencinin sorusundaki anahtar kelimelerin RESMİ MEVZUAT karşılıklarını bul.
-    Sadece resmi terimleri yan yana yaz.
+    GÖREV: Aşağıdaki öğrenci sorusundaki "halk ağzı" kelimeleri, üniversite "resmi mevzuat" diline çevir.
+    Sadece resmi terimleri çıktı olarak ver. Başka hiçbir kelime yazma.
     
-    Örnek:
-    Soru: "Staj yerimi değiştirebilir miyim?"
-    Cevap: Uygulamalı Eğitim İşletme Değişikliği
+    Örnekler:
+    - "Staj defterini kime vericem?" -> "Uygulamalı Eğitim Dosyası Teslimi"
+    - "Okulu dondurmak istiyorum" -> "Kayıt Dondurma Başvurusu"
+    - "Dersten kaldım ne olacak?" -> "Ders Tekrarı Başarısızlık Durumu"
     
     Soru: "{question}"
-    Cevap:
+    Resmi Karşılık:
     """
     
     try:
-        official_terms = llm_translator.invoke(translation_prompt).content
-        # SİHİRLİ DOKUNUŞ: İkisini birleştiriyoruz!
-        # "Staj yerimi değiştirebilir miyim? Uygulamalı Eğitim İşletme Değişikliği"
+        official_terms = llm_translator.invoke(translation_prompt).content.strip()
+        # Hem öğrencinin sorusunu hem de resmi terimi birleştirip arıyoruz.
         hybrid_query = f"{question} {official_terms}"
-        
-        # EKRANA YAZDIRALIM (Kullanıcı görsün ne arandığını)
-        #with st.expander("🕵️‍♂️ Arka Plan İşlemleri (Debug)", expanded=False):
-         #   st.write(f"**Orijinal Soru:** {question}")
-          #  st.write(f"**Resmi Terimler:** {official_terms}")
-           # st.write(f"**Veritabanında Aranan:** {hybrid_query}")
-            
     except:
         hybrid_query = question 
 
-    # --- ADIM 2: BELGE GETİRME (MMR ile Çeşitlilik) ---
-    # fetch_k=40 yaptık ki havuz geniş olsun, ıskalamasın.
-    docs = vector_store.max_marginal_relevance_search(hybrid_query, k=10, fetch_k=40)
+    # --- 3. BELGE GETİRME (MMR) ---
+    # Fetch_k değerini yüksek tutuyoruz ki alakasızları eleyip en iyileri seçsin.
+    docs = vector_store.max_marginal_relevance_search(hybrid_query, k=8, fetch_k=30)
     
-    # --- ADIM 3: BAĞLAM OLUŞTURMA ---
+    # --- 4. BAĞLAM OLUŞTURMA ---
     context_text = ""
     sources = []
     for i, doc in enumerate(docs):
         clean_content = doc.page_content.replace("\n", " ").strip()
         context_text += f"\n--- BELGE PARÇASI {i+1} ---\n{clean_content}\n"
         
+        # Kaynakça oluşturma
         source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         page_num = int(doc.metadata.get("page", 0)) + 1
         src_str = f"{source_name} (Sayfa {page_num})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- ADIM 4: CEVAP ÜRETME (SIFIR TOLERANS) ---
+    # --- 5. CEVAP ÜRETME (FORMAT GARANTİLİ) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0 # Kesinlikle uydurmasın, sadece metni okusun.
+        temperature=0.2 # Biraz esneklik iyidir ama çok değil.
     )
     
+    # İşte senin istediğin o "Tutarlı Format" burada sağlanıyor:
     final_template = f"""
-    Sen üniversite mevzuat asistanısın.
+    Sen üniversite mevzuat asistanısın. Görevin öğrencilerin sorularını RESMİ BELGELERE dayanarak cevaplamaktır.
     
-    Aşağıdaki "RESMİ BELGELER"i oku ve soruya cevap ver.
+    Aşağıdaki "BAĞLAM"ı dikkatlice oku ve "SORU"yu cevapla.
     
-    RESMİ BELGELER:
+    BAĞLAM (Dokümanlar):
     {context_text}
     
     SORU: {question}
     
-    KURALLAR:
-    1. Belgede "Uygulamalı Eğitim" yazıyorsa ve öğrenci "Staj" dediyse bunları aynı şey kabul et.
-    2. Cevabı belgelerin içinden bul ve net bir şekilde yaz.
-    3. Eğer belgede YOKSA, "Verilen dokümanlarda bu bilgi yer almıyor" de.
+    --- KURALLAR VE FORMAT (ÖNEMLİ) ---
+    1. FORMAT: Cevabı her zaman okunabilirliği artırmak için ALT ALTA MADDELER (Bullet Points) halinde ver.
+    2. STAJ DURUMU: Öğrenci "Staj" kelimesini kullanırsa, bunu dokümanlardaki "Uygulamalı Eğitim" maddeleriyle eşleştir.
+    3. BAĞLAMSALLIK: Eğer cevap verilen metinlerde yoksa, "Verilen dokümanlarda bu bilgi yer almıyor" de. Dışarıdan bilgi uydurma.
+    4. TON: Resmi, yardımsever ve net ol.
     
     CEVAP:
     """
