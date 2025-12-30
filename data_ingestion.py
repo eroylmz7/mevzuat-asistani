@@ -24,8 +24,8 @@ def process_pdfs(uploaded_files):
         documents = loader.load()
         
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=400,
-            chunk_overlap=100,
+            chunk_size=1000,
+            chunk_overlap=200,
             separators=["\nMadde", "\n\n", "\n", ". ", " ", ""]
         )
         split_docs = text_splitter.split_documents(documents)
