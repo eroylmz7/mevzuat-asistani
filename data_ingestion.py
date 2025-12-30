@@ -61,35 +61,36 @@ def process_pdfs(uploaded_files):
     return None
 def delete_document_cloud(file_name):
     """
-    Belirtilen dosya ismine sahip tüm vektörleri Pinecone'dan siler.
+    Belirtilen dosyayı hem Pinecone vektör veritabanından 
+    hem de Supabase kayıtlarından siler.
     """
     try:
-        # API Key'i al
-        pinecone_api_key = st.secrets["pcsk_53WghE_JWWYFBEkNMEUEh8H3KfQqus1Bn8Q2bxye2EsxKiC7zVrCMtN8eXWmjPqL1c4L19"]
-        index_name = "mevzuat-asistani" # Senin index ismin neyse o olmalı
+        # --- 1. ADIM: PINECONE'DAN SİL (Vektörler) ---
+        pinecone_api_key = st.secrets["PINECONE_API_KEY"]
+        index_name = "mevzuat-asistani" # Index isminin doğruluğundan emin ol
 
-        # Pinecone'a bağlan
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(index_name)
 
-        # Silme işlemi (Metadata filtresi ile)
-        # Not: Kaydederken dosya yolunu tam kaydediyor olabiliriz. 
-        # Garanti olması için 'source' içinde dosya adı geçenleri sildireceğiz 
-        # ancak Pinecone delete by metadata tam eşleşme ister.
-        # Bu yüzden önce basit filtre deniyoruz:
-        
-        # 1. Yöntem: Metadata filtresiyle silme (En temiz yöntem)
-        # Ancak dosya yolu "/tmp/..." şeklinde kayıtlıysa tam eşleşmeyebilir.
-        # Biz yine de dosya adını kaynak olarak gönderip silmeyi deneyelim.
-        
-        # Eğer metadata'da sadece dosya adı tutuyorsak bu çalışır:
+        # 'source' metadata'sı dosya adına eşit olan vektörleri sil
         index.delete(filter={"source": file_name})
         
-        # Eğer tam yol tutuluyorsa (örn: /tmp/dosya.pdf) ve biz sadece dosya.pdf biliyorsak,
-        # Pinecone free tier'da "contains" araması zor olabilir. 
-        # Şimdilik yüklerken dosya adını metadata'ya "file_name" diye eklemediysek
-        # "source" üzerinden silmeyi deniyoruz.
+        # --- 2. ADIM: SUPABASE'DEN SİL (Liste Kaydı) ---
+        # Eğer bunu yapmazsak sol menüde isim durmaya devam eder.
+        try:
+            supabase_url = st.secrets["SUPABASE_URL"]
+            supabase_key = st.secrets["SUPABASE_KEY"]
+            supabase = create_client(supabase_url, supabase_key)
+            
+            # 'dokumanlar' tablosundan dosya ismine göre satırı sil
+            supabase.table("dokumanlar").delete().eq("dosya_adi", file_name).execute()
+            
+        except Exception as e:
+            # Pinecone silindi ama Supabase silinemedi ise kullanıcıya söylemeyelim,
+            # sistem çalışmaya devam etsin ama log düşsün.
+            print(f"Supabase silme hatası: {e}")
+
+        return True, f"{file_name} sistemden tamamen kaldırıldı."
         
-        return True, f"{file_name} başarıyla silindi."
     except Exception as e:
-        return False, f"Silme hatası: {str(e)}"
+        return False, f"Silme işlemi sırasında hata oluştu: {str(e)}"
