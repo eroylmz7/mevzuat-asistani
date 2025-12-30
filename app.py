@@ -6,6 +6,7 @@ import pandas as pd
 import os
 import asyncio 
 from supabase import create_client
+from data_ingestion import delete_document_cloud
 
 # --- KRİTİK HATA DÜZELTİCİ ---
 try:
@@ -136,18 +137,25 @@ if not st.session_state.logged_in:
                         except: st.error("Kullanıcı adı alınmış.")
     st.stop()
 
-# --- SIDEBAR (ADMİN ÖZEL) ---
+# Gerekli import (Dosyanın en başına eklemelisin)
+from data_ingestion import process_pdfs, delete_document_cloud
+
+# --- SIDEBAR BAŞLANGICI ---
 with st.sidebar:
+    # 1. KULLANICI KARTI
     rol_txt = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
     st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
 
+    # ========================================================
+    #  YÖNETİCİ PANELİ (Sadece Admin Görür)
+    # ========================================================
     if st.session_state.role == 'admin':
         if st.button("📊 Analiz Paneli"): st.session_state.analiz_acik = not st.session_state.analiz_acik
         
-        # --- GELİŞMİŞ ANALİZ (DATABASE) ---
+        # --- GELİŞMİŞ ANALİZ ---
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-            df_log = admin_analiz_getir()
+            df_log = admin_analiz_getir() # Bu fonksiyonun tanımlı olduğunu varsayıyoruz
             
             if not df_log.empty:
                 toplam_soru = len(df_log)
@@ -155,60 +163,129 @@ with st.sidebar:
                 
                 st.write(f"🔹 **Toplam Soru:** {toplam_soru}")
                 st.write(f"🔹 **Aktif Öğrenci:** {aktif_kullanici}")
-                
                 st.markdown("---")
                 st.caption("Son 5 Soru:")
                 st.dataframe(df_log[['kullanici_adi', 'soru']].tail(5), hide_index=True)
             else:
                 st.write("Henüz veri yok.")
-            
             st.markdown('</div>', unsafe_allow_html=True)
-        # ----------------------------------
         
         st.divider()
+        
+        # --- DOSYA YÖNETİMİ ---
         st.subheader("📁 Veri Yönetimi")
+        
+        # 1. Dosya Yükleme
         uploaded_files = st.file_uploader("PDF Yükle", accept_multiple_files=True, type=['pdf'])
-        if st.button("Veritabanını Güncelle"):
+        
+        # İSİM GÜNCELLENDİ: "Veritabanına Belge Ekle"
+        if st.button("Veritabanına Belge Ekle", type="primary"):
             if uploaded_files:
                 durum = st.status("Sistem güncelleniyor...", expanded=True)
+                # Cloud işlem fonksiyonun
                 st.session_state.vector_db = process_pdfs(uploaded_files)
-                durum.update(label="✅ Güncelleme Tamamlandı!", state="complete")
+                durum.update(label="✅ Belgeler Eklendi!", state="complete")
+                st.rerun()
         
-        # --- YÜKLÜ DOSYALARI LİSTELE (DATABASE) ---
+        # 2. Yüklü Dosyaları Listeleme ve Silme (Supabase'den Çeker)
         st.markdown("<br>", unsafe_allow_html=True)
-        st.caption("📚 SİSTEMDEKİ BELGELER")
+        st.caption("📚 SİSTEMDEKİ BELGELER (YÖNET)")
+        
         try:
+            # Supabase'den dosya listesini çek
             docs = supabase.table("dokumanlar").select("*").execute()
+            
             if docs.data:
                 for d in docs.data:
-                    st.markdown(f'<div class="file-item">📄 {d["dosya_adi"]}</div>', unsafe_allow_html=True)
+                    dosya_adi = d["dosya_adi"]
+                    
+                    # Yan yana düzen: Dosya Adı | Sil Butonu
+                    col1, col2 = st.columns([0.85, 0.15])
+                    
+                    with col1:
+                        st.markdown(f'<div style="font-size:0.9em; padding-top:5px;">📄 {dosya_adi}</div>', unsafe_allow_html=True)
+                    
+                    with col2:
+                        # Çöp Kutusu Butonu
+                        if st.button("🗑️", key=f"del_btn_{dosya_adi}", help="Belgeyi Sil"):
+                            st.session_state.delete_target = dosya_adi
+                            st.rerun()
             else:
                 st.info("Henüz belge yüklenmemiş.")
-        except:
-            st.error("Liste alınamadı.")
-        # -------------------------------
+                
+        except Exception as e:
+            st.error(f"Liste alınamadı: {e}")
+
+        # --- SİLME ONAY KUTUSU (Confirmation) ---
+        if "delete_target" in st.session_state and st.session_state.delete_target:
+            target_file = st.session_state.delete_target
+            
+            with st.container():
+                st.warning(f"⚠️ **{target_file}** silinecek. Emin misiniz?")
+                col_yes, col_no = st.columns(2)
+                
+                with col_yes:
+                    if st.button("✅ EVET, SİL", use_container_width=True):
+                        with st.spinner("Siliniyor..."):
+                            # Data_ingestion.py'deki fonksiyonu çağır
+                            success, msg = delete_document_cloud(target_file)
+                            if success:
+                                st.success(msg)
+                                del st.session_state.delete_target
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                
+                with col_no:
+                    if st.button("❌ VAZGEÇ", use_container_width=True):
+                        del st.session_state.delete_target
+                        st.rerun()
+
         st.divider()
 
+    # ========================================================
+    #  ÖĞRENCİ GÖRÜNÜMÜ (Salt Okunur Liste)
+    # ========================================================
+    else:
+        # Öğrenci sadece listeyi görür, butonları görmez
+        st.subheader("📚 Mevzuat Listesi")
+        try:
+            docs = supabase.table("dokumanlar").select("dosya_adi").execute()
+            if docs.data:
+                for d in docs.data:
+                    st.markdown(f"🔹 *{d['dosya_adi']}*")
+            else:
+                st.caption("Yüklü belge yok.")
+        except:
+            st.caption("Liste yüklenemedi.")
+        
+        st.divider()
+
+    # ========================================================
+    # ORTAK BUTONLAR (Sohbet İndir, Çıkış vb.)
+    # ========================================================
     st.caption("İşlemler")
-    # Sohbet indirme
+    
+    # Sohbet İndirme
     if st.session_state.messages:
-        tr_saat = get_tr_time()
+        # get_tr_time fonksiyonun import edildiğini varsayıyoruz
+        tr_saat = get_tr_time() 
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
         st.download_button("📥 Sohbeti İndir", log, "chat.txt", use_container_width=True)
     
     st.markdown("<div style='margin-bottom: 5px;'></div>", unsafe_allow_html=True)
+    
     if st.button("🗑️ Temizle", use_container_width=True):
         st.session_state.messages = [{"role": "assistant", "content": "Sohbet temizlendi."}]
         st.rerun()
+    
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- ÇIKIŞ YAP ---
+    # Çıkış Yap
     if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
-        st.session_state.logged_in = False
-        st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
-        st.session_state.username = ""
-        st.session_state.role = ""
+        for key in st.session_state.keys():
+            del st.session_state[key]
         st.rerun()
 
 # --- SOHBET EKRANI ---

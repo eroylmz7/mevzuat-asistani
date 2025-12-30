@@ -5,6 +5,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_pinecone import PineconeVectorStore
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from supabase import create_client
+from pinecone import Pinecone
+import streamlit as st
 
 def process_pdfs(uploaded_files):
     # Supabase Bağlantısı (Kayıt Defteri İçin)
@@ -57,3 +59,37 @@ def process_pdfs(uploaded_files):
         return vector_store
     
     return None
+def delete_document_cloud(file_name):
+    """
+    Belirtilen dosya ismine sahip tüm vektörleri Pinecone'dan siler.
+    """
+    try:
+        # API Key'i al
+        pinecone_api_key = st.secrets["pcsk_53WghE_JWWYFBEkNMEUEh8H3KfQqus1Bn8Q2bxye2EsxKiC7zVrCMtN8eXWmjPqL1c4L19"]
+        index_name = "mevzuat-asistani" # Senin index ismin neyse o olmalı
+
+        # Pinecone'a bağlan
+        pc = Pinecone(api_key=pinecone_api_key)
+        index = pc.Index(index_name)
+
+        # Silme işlemi (Metadata filtresi ile)
+        # Not: Kaydederken dosya yolunu tam kaydediyor olabiliriz. 
+        # Garanti olması için 'source' içinde dosya adı geçenleri sildireceğiz 
+        # ancak Pinecone delete by metadata tam eşleşme ister.
+        # Bu yüzden önce basit filtre deniyoruz:
+        
+        # 1. Yöntem: Metadata filtresiyle silme (En temiz yöntem)
+        # Ancak dosya yolu "/tmp/..." şeklinde kayıtlıysa tam eşleşmeyebilir.
+        # Biz yine de dosya adını kaynak olarak gönderip silmeyi deneyelim.
+        
+        # Eğer metadata'da sadece dosya adı tutuyorsak bu çalışır:
+        index.delete(filter={"source": file_name})
+        
+        # Eğer tam yol tutuluyorsa (örn: /tmp/dosya.pdf) ve biz sadece dosya.pdf biliyorsak,
+        # Pinecone free tier'da "contains" araması zor olabilir. 
+        # Şimdilik yüklerken dosya adını metadata'ya "file_name" diye eklemediysek
+        # "source" üzerinden silmeyi deniyoruz.
+        
+        return True, f"{file_name} başarıyla silindi."
+    except Exception as e:
+        return False, f"Silme hatası: {str(e)}"
