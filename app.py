@@ -7,6 +7,7 @@ import os
 import asyncio 
 from supabase import create_client
 from data_ingestion import delete_document_cloud
+from data_ingestion import process_pdfs, delete_document_cloud, connect_to_existing_index
 
 # --- KRİTİK HATA DÜZELTİCİ ---
 try:
@@ -93,22 +94,36 @@ def get_cloud_db():
         print(f"Pinecone Hatası: {e}")
         return None
 
-# --- STATE ---
-if "messages" not in st.session_state: st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
+# --- STATE AYARLARI ---
+if "messages" not in st.session_state:
+    st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
+
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "username" not in st.session_state: st.session_state.username = ""
 if "role" not in st.session_state: st.session_state.role = ""
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
-# Mesaj geçmişi zaten vardır ama LangChain için chat_history de lazım
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
+# TEK VE ORTAK DEĞİŞKENİMİZ: "vector_store"
 if "vector_store" not in st.session_state:
     st.session_state.vector_store = None
 
-if "vector_db" not in st.session_state or st.session_state.vector_db is None:
-    st.session_state.vector_db = get_cloud_db()
+# --- OTOMATİK BAĞLANTI (SİHİRLİ DOKUNUŞ) ---
+# Eğer hafıza boşsa, Pinecone'a bağlanmaya çalış
+if st.session_state.vector_store is None:
+    with st.spinner("Veritabanına bağlanılıyor..."):
+        try:
+            st.session_state.vector_store = connect_to_existing_index()
+            
+            if st.session_state.vector_store:
+                st.toast("✅ Veritabanı Bağlantısı Başarılı!", icon="🚀")
+            else:
+                # Bağlantı fonksiyonu None döndürdüyse hata var demektir
+                st.error("⚠️ Veritabanına bağlanılamadı. API Key veya İnternet sorunu olabilir.")
+        except Exception as e:
+            st.error(f"🚨 Bağlantı Hatası: {e}")
 
+# (Uyarı mesajını kaldırıldı çünkü yukarıdaki error zaten durumu anlatacak)
 
 # --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
@@ -306,9 +321,9 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
 
     with st.chat_message("assistant"):
         if "vector_store" not in st.session_state or st.session_state.vector_store is None:
-             st.warning("⚠️ Veritabanı bağlantısı yok. Lütfen sol menüden belge yükleyin veya 'Veritabanını Güncelle' deyin.")
+             st.warning("⚠️ Veritabanı bağlantısı yok. Bir hata var")
         else:
-            with st.spinner("Gemini (Cloud) düşünüyor..."):
+            with st.spinner("Düşünülüyor..."):
                 try:
                     # Cevabı al
                     sonuc = generate_answer(prompt, st.session_state.vector_store, st.session_state.chat_history)
