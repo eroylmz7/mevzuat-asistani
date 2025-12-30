@@ -320,40 +320,63 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
+        # Veritabanı kontrolü
         if "vector_store" not in st.session_state or st.session_state.vector_store is None:
-             st.warning("⚠️ Veritabanı bağlantısı yok. Bir hata var")
+             st.warning("⚠️ Veritabanı bağlantısı yok. Lütfen sayfayı yenileyin.")
         else:
-            with st.spinner("Düşünülüyor..."):
+            with st.spinner("Gemini (Cloud) düşünüyor..."):
                 try:
-                    # Cevabı al
-                    sonuc = generate_answer(prompt, st.session_state.vector_store, st.session_state.chat_history)
+                    # --- YENİ RETRY (TEKRAR DENEME) MEKANİZMASI BAŞLANGICI ---
+                    # Google bazen 504 hatası verdiği için, pes etmeden 3 kere deneyeceğiz.
+                    sonuc = None
+                    max_deneme = 3
                     
-                    answer_text = sonuc["answer"]
-                    sources = sonuc["sources"]
+                    for deneme in range(max_deneme):
+                        try:
+                            # 1. Cevabı üretmeyi dene
+                            sonuc = generate_answer(prompt, st.session_state.vector_store, st.session_state.chat_history)
+                            break # Eğer hata almazsak döngüden çık (Başardık!)
+                        
+                        except Exception as e:
+                            # 2. Hata analizi yap (Sadece sunucu hatalarında tekrar dene)
+                            hata_mesaji = str(e)
+                            if "504" in hata_mesaji or "503" in hata_mesaji or "Deadline Exceeded" in hata_mesaji:
+                                if deneme < max_deneme - 1: # Son hakkımız değilse
+                                    time.sleep(2) # 2 saniye nefes al
+                                    continue # Başa dön ve tekrar dene
+                            
+                            # Başka bir hataysa (kod hatası vb.) veya haklar bittiyse hatayı fırlat
+                            raise e
+                    
+                    # --- RETRY MEKANİZMASI BİTİŞİ (Buradan aşağısı senin eski kodunla aynı) ---
 
-                    # --- KRİTİK DÜZELTME: OLUMSUZ CEVAPSA KAYNAKLARI GİZLE ---
-                    # Eğer cevapta "bilgi yok" türevi şeyler geçiyorsa kaynakları boşalt.
-                    negative_keywords = ["bilgi bulunamadı", "bilgi yer almıyor", "bilgim yok", "dokümanlarda bu bilgi yok"]
-                    
-                    if any(keyword in answer_text.lower() for keyword in negative_keywords):
-                        sources = [] # Kaynak listesini sıfırla
+                    if sonuc:
+                        answer_text = sonuc["answer"]
+                        sources = sonuc["sources"]
 
-                    # Kaynakları HTML Bloğu Olarak Hazırla
-                    sources_html = ""
-                    if sources: # Sadece kaynak varsa kutuyu oluştur
-                        sources_html += '<div class="source-container"><div class="source-header">📚 REFERANSLAR</div>'
-                        for src in sources:
-                            sources_html += f'<div class="source-item"><span class="source-icon">📄</span> {src}</div>'
-                        sources_html += '</div>'
-                    
-                    # Cevap ve Kaynakları Birleştir
-                    final_content = answer_text + sources_html
-                    
-                    # Ekrana Bas
-                    st.markdown(final_content, unsafe_allow_html=True)
-                    
-                    # Hafızaya Kaydet
-                    st.session_state.messages.append({"role": "assistant", "content": final_content})
+                        # --- KRİTİK DÜZELTME: OLUMSUZ CEVAPSA KAYNAKLARI GİZLE ---
+                        negative_keywords = ["bilgi bulunamadı", "bilgi yer almıyor", "bilgim yok", "dokümanlarda bu bilgi yok"]
+                        
+                        if any(keyword in answer_text.lower() for keyword in negative_keywords):
+                            sources = [] # Kaynak listesini sıfırla
+
+                        # Kaynakları HTML Bloğu Olarak Hazırla
+                        sources_html = ""
+                        if sources: 
+                            sources_html += '<div class="source-container"><div class="source-header">📚 REFERANSLAR</div>'
+                            for src in sources:
+                                sources_html += f'<div class="source-item"><span class="source-icon">📄</span> {src}</div>'
+                            sources_html += '</div>'
+                        
+                        # Cevap ve Kaynakları Birleştir
+                        final_content = answer_text + sources_html
+                        
+                        # Ekrana Bas
+                        st.markdown(final_content, unsafe_allow_html=True)
+                        
+                        # Hafızaya Kaydet
+                        st.session_state.messages.append({"role": "assistant", "content": final_content})
                     
                 except Exception as e:
-                    st.error(f"Hata: {e}")
+                    # 3 kere denemesine rağmen olmazsa veya başka hata varsa burası çalışır
+                    st.error(f"😔 Bir bağlantı sorunu oluştu (Hata: {str(e)}). Lütfen tekrar deneyin.")
