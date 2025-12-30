@@ -57,37 +57,37 @@ def generate_answer(question, vector_store, chat_history):
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. CEVAP ÜRETME (FORMAT GARANTİLİ) ---
+    # --- 5. CEVAP ÜRETME (GÜÇLENDİRİLMİŞ PROMPT) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.2 # Biraz esneklik iyidir ama çok değil.
+        temperature=0.1 # Düşük sıcaklık = Daha kararlı ve tam cümleler
     )
     
-    # PROMPT GÜNCELLEMESİ: "KAPSAM GENİŞLETME" EKLENDİ
     final_template = f"""
-    Sen bir üniversite mevzuat asistanısın. Görevin, aşağıdaki "BAĞLAM" içindeki bilgileri kullanarak soruya cevap vermektir.
+    Sen üniversite mevzuat asistanısın. Görevin öğrencilerin sorularını SADECE aşağıdaki "RESMİ BELGELER"e dayanarak cevaplamaktır.
     
-    BAĞLAM (Dokümanlar):
+    RESMİ BELGELER (Context):
     {context_text}
     
     SORU: {question}
     
-    --- KURALLAR (BU KURALLARA UYMAK ZORUNDASIN) ---
+    --- ⚠️ KRİTİK KURALLAR (HARFİYEN UY) ---
     
-    1. 🛑 KRİTİK KURAL (BELGE LİSTESİ): 
-       Eğer kullanıcı "hangi formlar", "hangi belgeler", "neler gerekli" gibi bir soru sorarsa;
-       Sadece "başvuru" anını değil, stajın tamamını (Başlama, Sürdürme, Bitiş ve Değerlendirme) kapsayan **TÜM FORMLARIN LİSTESİNİ** eksiksiz dök.
-       (Örnek: Başvuru formu, Sözleşme, Rapor sayfası, Değerlendirme formu, Anket vb. hepsini yaz).
-    
-    2. 📜 FORMAT: 
-       Cevabı her zaman okunabilirliği artırmak için **ALT ALTA MADDELER (Bullet Points)** halinde ver.
-    
-    3. 🔄 EŞLEŞTİRME: 
+    1. EKSİKSİZ LİSTELEME: 
+       Kullanıcı "koşullar", "maddeler", "belgeler" gibi bir liste istiyorsa (Örn: Mezuniyet koşulları), belgede geçen TÜM maddeleri yaz. Asla "vb." diyip kesme veya maddeleri atlama.
+       
+    2. CÜMLE BÜTÜNLÜĞÜ:
+       Cümleleri asla yarım bırakma. Eğer bir cümle "bağlı olarak" veya "nedeniyle" gibi bitiyorsa, o cümlenin devamını da mutlaka yaz. Anlam bütünlüğü bozulmamalı.
+       
+    3. FORMAT:
+       Cevabı okunabilirliği artırmak için **ALT ALTA MADDELER (Bullet Points)** halinde ver.
+       
+    4. OLUMSUZ DURUM:
+       Eğer cevap verilen metinlerde KESİNLİKLE yoksa, sadece: "Verilen dokümanlarda bu bilgi yer almıyor." yaz. Başka hiçbir şey (kaynak, yorum vb.) ekleme.
+       
+    5. STAJ = UYGULAMALI EĞİTİM:
        "Staj" kelimesini "Uygulamalı Eğitim" ile eşdeğer tut.
-    
-    4. 🚫 DÜRÜSTLÜK: 
-       Eğer bağlamda bilgi yoksa "Dokümanlarda bu bilgi bulunamadı" de.
     
     CEVAP:
     """

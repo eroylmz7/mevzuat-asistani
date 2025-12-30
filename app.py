@@ -221,27 +221,40 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        if st.session_state.vector_db is None:
-            st.error("⚠️ Bulut veritabanına bağlanılamadı.")
+        if st.session_state.chat_history is None: # Veya vector_store kontrolü
+             st.warning("⚠️ Lütfen önce giriş yapın veya sistemin hazır olmasını bekleyin.")
         else:
-            with st.spinner("Mevzuat taranıyor..."):
+            with st.spinner("Gemini (Cloud) düşünüyor..."):
                 try:
-                    sonuc = generate_answer(prompt, st.session_state.vector_db, st.session_state.messages)
-                    daktilo_efekti(sonuc["answer"])
+                    # Cevabı al
+                    sonuc = generate_answer(prompt, st.session_state.vector_store, st.session_state.chat_history)
                     
-                    # --- SİHİRLİ DOKUNUŞ: LOGLAMA ---
-                    # Soruyu ve cevabı Supabase'e kaydediyoruz ki Admin görebilsin!
-                    log_kaydet(st.session_state.username, prompt, sonuc["answer"])
-                    # ---------------------------------
+                    answer_text = sonuc["answer"]
+                    sources = sonuc["sources"]
+
+                    # --- KRİTİK DÜZELTME: OLUMSUZ CEVAPSA KAYNAKLARI GİZLE ---
+                    # Eğer cevapta "bilgi yok" türevi şeyler geçiyorsa kaynakları boşalt.
+                    negative_keywords = ["bilgi bulunamadı", "bilgi yer almıyor", "bilgim yok", "dokümanlarda bu bilgi yok"]
                     
-                    if sonuc["sources"]:
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.caption("📚 KAYNAKLAR")
-                        html_src = ""
-                        for src in sonuc["sources"]:
-                            html_src += f'<div class="source-item">📄 {src}</div>'
-                        st.markdown(html_src, unsafe_allow_html=True)
-                    full = sonuc["answer"] + ("\n\nKaynaklar:\n" + "\n".join(sonuc["sources"]) if sonuc["sources"] else "")
-                    st.session_state.messages.append({"role": "assistant", "content": full})
+                    if any(keyword in answer_text.lower() for keyword in negative_keywords):
+                        sources = [] # Kaynak listesini sıfırla
+
+                    # Kaynakları HTML Bloğu Olarak Hazırla
+                    sources_html = ""
+                    if sources: # Sadece kaynak varsa kutuyu oluştur
+                        sources_html += '<div class="source-container"><div class="source-header">📚 REFERANSLAR</div>'
+                        for src in sources:
+                            sources_html += f'<div class="source-item"><span class="source-icon">📄</span> {src}</div>'
+                        sources_html += '</div>'
+                    
+                    # Cevap ve Kaynakları Birleştir
+                    final_content = answer_text + sources_html
+                    
+                    # Ekrana Bas
+                    st.markdown(final_content, unsafe_allow_html=True)
+                    
+                    # Hafızaya Kaydet
+                    st.session_state.messages.append({"role": "assistant", "content": final_content})
+                    
                 except Exception as e:
                     st.error(f"Hata: {e}")
