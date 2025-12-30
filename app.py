@@ -313,7 +313,9 @@ with st.sidebar:
 # --- SOHBET EKRANI ---
 st.title("💬 Mevzuat Asistanı")
 for m in st.session_state.messages:
-    with st.chat_message(m["role"]): st.markdown(m["content"])
+    with st.chat_message(m["role"]):
+        # BURASI DEĞİŞTİ: unsafe_allow_html=True eklendi
+        st.markdown(m["content"], unsafe_allow_html=True)
 
 if prompt := st.chat_input("Sorunuzu yazın..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
