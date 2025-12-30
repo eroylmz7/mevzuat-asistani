@@ -15,7 +15,7 @@ def generate_answer(question, vector_store, chat_history):
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0 # Yaratıcılık sıfır olsun, sadece çeviri yapsın.
+        temperature=0.2 # Yaratıcılık sıfır olsun, sadece çeviri yapsın.
     )
     
     # Prompt'u biraz daha "Emir kipi" ile yazdık ki sohbet etmeye çalışmasın.

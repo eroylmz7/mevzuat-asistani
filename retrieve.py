@@ -10,7 +10,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 # Veritabanı klasörü (vector_db.py ile aynı olmalı)
 PERSIST_DIRECTORY = "./chroma_db_store"
 
-def search_documents(query, k=5):
+def search_documents(query, k=20):
     """
     Kullanıcının sorusuna (query) en benzer metin parçalarını getirir.
     k: Getirilecek parça sayısı (Bu daha sonra değiştirilebilir.Yetmezse değiştireceğim.)
