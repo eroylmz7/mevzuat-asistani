@@ -1,3 +1,5 @@
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_pinecone import PineconeVectorStore
 import os
 import streamlit as st
 from langchain_community.document_loaders import PyMuPDFLoader 
@@ -94,3 +96,31 @@ def delete_document_cloud(file_name):
         
     except Exception as e:
         return False, f"Silme işlemi sırasında hata oluştu: {str(e)}"
+
+# --- Otomatik olarak veritabanına bağlantı sağlama ---
+
+def connect_to_existing_index():
+    """
+    Dosya yüklemeden, sadece mevcut Pinecone index'ine bağlanır.
+    """
+    try:
+        # API Anahtarlarını Al
+        google_api_key = st.secrets["GOOGLE_API_KEY"]
+        pinecone_api_key = st.secrets["PINECONE_API_KEY"]
+        
+        # 1. Embedding Modelini Hazırla
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/embedding-001", 
+            google_api_key=google_api_key
+        )
+        
+        # 2. Mevcut Index'e Bağlan
+        vector_store = PineconeVectorStore.from_existing_index(
+            index_name="mevzuat-asistani", # Senin index ismin
+            embedding=embeddings
+        )
+        
+        return vector_store
+    except Exception as e:
+        st.error(f"Otomatik bağlantı hatası: {e}")
+        return None
