@@ -40,11 +40,10 @@ def generate_answer(question, vector_store, chat_history):
         hybrid_query = question 
 
     # --- 3. BELGE GETİRME (Retrieval) ---
-    # vector_store nesnesi app.py'den HuggingFace ayarıyla geldiği için 
-    # burada embedding tanımlamaya gerek yok, kendi içinde halleder.
+    
     try:
         # fetch_k değerini yüksek tutuyoruz ki alakasızları eleyip en iyileri seçsin.
-        docs = vector_store.max_marginal_relevance_search(hybrid_query, k=8, fetch_k=30)
+        docs = vector_store.max_marginal_relevance_search(hybrid_query, k=15, fetch_k=50)
     except Exception as e:
         return {"answer": f"Arama sırasında hata oluştu (Veritabanı/Embedding uyumsuzluğu olabilir): {str(e)}", "sources": []}
     
