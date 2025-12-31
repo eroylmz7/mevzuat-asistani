@@ -87,9 +87,8 @@ def generate_answer(question, vector_store, chat_history):
     2. CÜMLE BÜTÜNLÜĞÜ:
        Cümleleri asla yarım bırakma. Tamamla.
        
-    3. FORMAT (ÖNEMLİ):
-       - Eğer cevap bir liste gerektiriyorsa (örneğin: koşullar, belgeler, maddeler) o zaman **Maddeler (Bullet Points)** kullan.
-       - Eğer cevap tek bir açıklama veya durum ise, **Normal Paragraf** olarak yaz. Gereksiz yere maddeleme yapma.
+    3. FORMAT:
+       Cevabı okunabilirliği artırmak için **ALT ALTA MADDELER (Bullet Points)** halinde ver.
        
     4. OLUMSUZ DURUM:
        Eğer cevap verilen metinlerde KESİNLİKLE yoksa, sadece: "Verilen dokümanlarda bu bilgi yer almıyor." yaz.
