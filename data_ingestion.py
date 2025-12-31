@@ -33,9 +33,18 @@ def process_pdfs(uploaded_files):
             documents = loader.load()
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,
-                chunk_overlap=200,
-                separators=["\nMadde", "\n\n", "\n", ". ", " ", ""]
+                chunk_size=1200,      # Biraz büyüttük (Madde bütünlüğü için)
+                chunk_overlap=250,    # Örtüşmeyi artırdık (Bağlam kopmasın)
+                separators=[
+                    "\nMADDE ",       # En öncelikli bölme yeri (Büyük harf)
+                    "\nMadde ",       # İkinci öncelik
+                    "\nGEÇİCİ MADDE", # Geçici maddeler
+                    "\n\n",           # Paragraflar
+                    "\n",             # Satırlar
+                    ". ",             # Cümleler
+                    " ",              # Kelimeler
+                    ""
+                ]
             )
             split_docs = text_splitter.split_documents(documents)
             
@@ -94,8 +103,6 @@ def delete_document_cloud(file_name):
 # --- OTOMATİK BAĞLANTI ---
 def connect_to_existing_index():
     try:
-        # ❌ BURADAKİ GOOGLE KODUNU SİLDİK
-        # ✅ YERİNE HUGGINGFACE KOYDUK
         embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
         
         vector_store = PineconeVectorStore.from_existing_index(

@@ -42,12 +42,11 @@ def generate_answer(question, vector_store, chat_history):
 
     # --- 3. GENİŞ KAPSAMLI ARAMA (Retrieval) ---
     try:
-        # k=12 ve fetch_k=50 yaparak havuzu geniş tutuyoruz ki tablolar kaçmasın.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=12, 
-            fetch_k=50,
-            lambda_mult=0.6 # Çeşitliliği artır (Benzer ama farklı yerleri de getir)
+            k=25,           # 15'ten 25'e çıkardık (Daha çok veri)
+            fetch_k=80,    # Havuzu 100'e çıkardık (Daha geniş tarama)
+            lambda_mult=0.5 # Çeşitlilik
         )
     except Exception as e:
         return {"answer": f"Arama hatası: {str(e)}", "sources": []}
