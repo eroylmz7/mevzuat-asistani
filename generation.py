@@ -89,7 +89,7 @@ def generate_answer(question, vector_store, chat_history):
        
     2. TABLO VE SAYI OKUMA ZORUNLULUĞU:
        - Kullanıcı "Onur Öğrencisi", "Yatay Geçiş", "Mezuniyet" gibi statü şartlarını soruyorsa;
-       - Metindeki sözel şartların (Disiplin cezası vb.) yanına MUTLAKA tablolardaki SAYISAL DEĞERLERİ (Örn: 3.00 - 3.49 arası, en az 2.50) ekle.
+       - Metindeki sözel şartların (Disiplin cezası vb.) yanına tablolardaki SAYISAL DEĞERLERİ (Örn: 3.00 - 3.49 arası, en az 2.50) ekle.
        - Eğer metinde "GANO" geçiyorsa, onun kaç olduğunu bulmadan cevabı bitirme.
        
     3. FORMAT:
