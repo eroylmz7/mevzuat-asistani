@@ -10,23 +10,25 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- 2. ÇEVİRMEN VE "KİMLİK TESPİTİ" ---
+    # --- 2. ANALİST AJAN ---
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
         temperature=0.1 
     )
     
-    # BURASI ÇOK ÖNEMLİ: Sorunun "Kime" ait olduğunu tespit ediyoruz.
+    # BURADA "ORTAK KONULAR" MANTIĞINI EKLİYORUZ
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için detaylandır.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için zenginleştir.
     
     ANALİZ ADIMLARI:
-    1. KİMLİK TESPİTİ: Soru "Lisans" öğrencisi için mi, "Yüksek Lisans/Doktora" öğrencisi için mi?
-       - İpuçları: "Tez", "Danışman Atama", "Yeterlik", "Seminer", "Yayın Şartı" geçerse -> LİSANSÜSTÜ.
-       - İpuçları: "ÇAP", "Yandal", "Yaz Okulu", "DC+", "DD+" geçerse -> LİSANS.
-    2. EŞ ANLAMLILAR: "Büt" -> "Bütünleme", "Af" -> "Öğrenci Affı".
-    3. SAYISAL VERİ: Soru bir süre (yıl/gün) veya puan soruyorsa, arama terimine "Süre Sınırı", "Azami Süre", "Geçerlilik" ekle.
+    1. KİMLİK VE KONU TESPİTİ:
+       - "LİSANSÜSTÜ": Soru "Tez", "Danışman", "Yeterlik", "Yayın Şartı", "Doktora" içeriyorsa.
+       - "LİSANS": Soru "ÇAP", "Yandal", "DC+", "DD+" içeriyorsa.
+       - "ORTAK/GENEL": Soru "Yatay Geçiş", "Muafiyet", "Kayıt Dondurma", "Devam Zorunluluğu", "İtiraz" gibi her iki seviyede de olan konuları içeriyorsa.
+       
+    2. ARAMA TERİMLERİ:
+       - Soru bir "Zaman" veya "Yıl" soruyorsa (Örn: "Kaç yıl önce?"): Sorguya "Süre Sınırı", "Geçerlilik Süresi", "Zaman Aşımı", "Son ... yıl" terimlerini ekle.
     
     Soru: "{question}"
     Geliştirilmiş Arama Sorgusu:
@@ -38,14 +40,12 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. RETRIEVAL (KAPASİTEYİ ARTIRDIK) ---
+    # --- 3. RETRIEVAL (GENİŞ HAVUZ) ---
     try:
-        # k=50 yapıyoruz. Neden?
-        # Çünkü sistemde hem Lisans hem Lisansüstü belgeleri var. 
-        # "Yatay Geçiş" arattığında ikisinden de 20'şer parça gelebilir. Hepsini alıp Prompt'a yollamalıyız.
+        # k=60 yapıyoruz ki hem Lisans hem Lisansüstü belgelerinden ilgili maddeler gelebilsin.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=50,           
+            k=60,           
             fetch_k=100,    
             lambda_mult=0.5 
         )
@@ -57,17 +57,24 @@ def generate_answer(question, vector_store, chat_history):
     sources = []
     for i, doc in enumerate(docs):
         clean_content = doc.page_content.replace("\n", " ").strip()
-        source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
+        source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor")).lower()
         
-        # Modele hangi bilginin hangi dosyadan geldiğini açıkça söylüyoruz.
-        context_text += f"\n[KAYNAK DOSYA: {source_name}] -> İÇERİK: {clean_content}\n"
+        # Dosya adına göre etiketleme
+        if "lisansustu" in source_name:
+            label = "LİSANSÜSTÜ YÖNETMELİĞİ"
+        elif "lisans" in source_name and "lisansustu" not in source_name:
+            label = "LİSANS YÖNETMELİĞİ"
+        else:
+            label = "DİĞER YÖNERGE"
+
+        context_text += f"\n[KAYNAK: {label} ({source_name})] -> İÇERİK: {clean_content}\n"
         
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
         src_str = f"{source_name} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. CEVAPLAYICI (KAYNAK SEÇİCİ MODU) ---
+    # --- 5. CEVAPLAYICI (ESNEK MOD) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
@@ -75,30 +82,30 @@ def generate_answer(question, vector_store, chat_history):
     )
     
     final_template = f"""
-    Sen, Üniversite Mevzuat Uzmanısın. Elinde hem "LİSANS" hem de "LİSANSÜSTÜ" (Yüksek Lisans/Doktora) yönetmelikleri var.
-    Görevin, soruya uygun olan DOĞRU yönetmeliği seçip oradan cevap vermektir.
+    Sen, Üniversite Mevzuat Uzmanısın. Elindeki belgeleri analiz ederek soruya cevap ver.
     
     ELİNDEKİ BELGELER (Context):
     {context_text}
     
     SORU: {question}
     
-    --- ⚠️ BELGE SEÇİM VE AYRIŞTIRMA KURALLARI (ÇOK KRİTİK) ---
+    --- ⚠️ CEVAPLAMA STRATEJİSİ ---
     
-    1. HEDEF KİTLE KONTROLÜ:
-       - Soru "Yüksek Lisans", "Doktora", "Tez", "Yeterlik", "Danışman" veya "Yayın" içeriyorsa -> SADECE dosya adında "lisansustu" geçen belgelere bak. "lisans_yonetmeligi.pdf" dosyasını GÖRMEZDEN GEL.
-       - Soru "Lisans", "Ön Lisans", "ÇAP", "Yandal" içeriyorsa -> "lisans_yonetmeligi.pdf" dosyasına bak.
+    1. BELGE ÖNCELİĞİ (FİLTRELEME DEĞİL, ÖNCELİKLENDİRME):
+       - Eğer kullanıcı soruda "Yüksek Lisans" veya "Doktora" dememişse bile; aradığı cevap (örneğin "5 yıl" kuralı) SADECE "LİSANSÜSTÜ" belgesinde yazıyorsa, o bilgiyi kullan ve kaynağını belirt.
+       - "Görmezden gel" kuralını unut. Eğer bir belgede net bir sayısal kısıtlama (yıl, gün, puan) varsa, o bilgiyi kullanıcıya sun.
        
-    2. ÇELİŞKİ YÖNETİMİ:
-       - Eğer "Lisans Yönetmeliği"nde süre 5 yıl, "Lisansüstü"nde süre sınırsız diyorsa; sorunun bağlamına göre doğru olanı seç. Karıştırma.
-       - Emin değilsen: "Lisans yönetmeliğine göre şöyle, Lisansüstü yönetmeliğine göre böyledir" diye ayrım yaparak cevap ver.
-       
-    3. SAYISAL VERİ AVCILIĞI:
-       - Soruda "Kaç yıl?", "Ne kadar süre?" varsa, metindeki "5 yıl", "3 ay", "Son ... yıl içinde" ifadelerini mutlaka bul.
+    2. AYRIM YAPMA:
+       - Eğer hem Lisans hem Lisansüstü belgelerinde farklı bilgiler varsa, cevabı ayır:
+         * **Lisans Yönetmeliğine Göre:** ...
+         * **Lisansüstü Yönetmeliğine Göre:** ...
+         
+    3. SAYISAL DETAYLAR:
+       - Soru "Kaç yıl?", "Ne zaman?" içeriyorsa; metindeki "5 yıl", "3 ay", "Son ... yıl içinde" ifadelerini mutlaka bul ve cevaba ekle.
     
-    --- 🚫 FORMAT YASAKLARI ---
-    - Cevap metninde "[KAYNAK DOSYA: ...]" gibi teknik etiketleri kullanıcıya gösterme.
-    - Sadece profesyonel bir dille "Yönetmeliğe göre..." de.
+    --- 🚫 FORMAT ---
+    - "[KAYNAK: ...]" etiketlerini cevap metninde kullanma.
+    - Kaynağı "Uludağ Üniversitesi Lisansüstü Eğitim Yönetmeliği'ne göre..." şeklinde cümle içinde geçir.
     
     CEVAP:
     """
