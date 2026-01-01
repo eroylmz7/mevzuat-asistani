@@ -81,7 +81,7 @@ def generate_answer(question, vector_store, chat_history):
     
     SORU: {question}
     
-    --- ⚠️ KESİN KURALLAR (HARFİYEN UYGULA) ---
+    ---  KESİN KURALLAR (HARFİYEN UYGULA) ---
     
     1. "BELGE PARÇASI" YASAGI:
        - Cevabında ASLA "Belge Parçası 9'a göre", "Bölüm 3'te yazdığı gibi", "Chunk 5" gibi ifadeler KULLANMA.
