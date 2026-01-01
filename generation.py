@@ -10,94 +10,89 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- 2. AKILLI ARAMA ÇEVİRMENİ ---
-    # Kullanıcının sorusunu, veritabanındaki tabloları ve sayıları bulacak şekilde genişletiyoruz.
+    # --- 2. EVRENSEL ÇEVİRMEN (ARTIK KELİME EZBERLEMİYOR) ---
+    # Gemini'ye diyoruz ki: "Sen Akademik Literatür Uzmanısın. Hangi kelimenin ne anlama geldiğini sen bul."
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
         temperature=0.1 
     )
     
+    # BURASI DEĞİŞTİ: Artık "Vize=Ara Sınav" diye elle yazmıyoruz. Genel kural koyuyoruz.
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve belge araması için en iyi anahtar kelimeleri üret.
+    GÖREV: Kullanıcının sorusunu analiz et ve belge araması için "Resmi Mevzuat Literatürü"ne çevir.
     
-    KURALLAR:
-    1. LİTERATÜR ÇEVİRİSİ: "Vize" -> "Ara Sınav", "Final" -> "Yarıyıl Sonu Sınavı", "Büt" -> "Bütünleme".
-    2. SAYISAL VERİ AVCLIĞI (KRİTİK): 
-       - Eğer soru bir "Şart", "Koşul", "Nasıl olurum", "Onur Belgesi", "Geçme Notu" içeriyorsa;
-       - Arama terimine mutlaka şunları ekle: "Not Ortalaması Tablosu", "GANO Puanı", "Sayısal Değerler", "Yüzdelik Dilim".
-       - Amaç: Metin içinde gizlenmiş rakamları (3.00, 2.00, %70 vb.) bulmaktır.
+    ANALİZ KURALLARI:
+    1. HALK DİLİ -> RESMİ DİL: Kullanıcı "atılma", "kovulma", "büt", "vize", "dondurma" gibi günlük ifadeler kullanabilir. Sen bunları yönetmeliklerde geçen RESMİ KARŞILIKLARINA (Örn: İlişik Kesme, Bütünleme, Ara Sınav, Kayıt Dondurma) dönüştür.
+    2. SAYISAL VERİ İPUÇLARI: Eğer soru "Ne kadar?", "Kaç?", "Şartı nedir?", "Süresi ne?" gibi nicelik soruyorsa; arama terimine "Süreleri", "Puanları", "Tablosu", "Oranları", "Kriterleri" gibi ifadeler ekle.
     
     Soru: "{question}"
-    Geliştirilmiş Arama Cümlesi:
+    Akademik Arama Cümlesi:
     """
     
     try:
-        # Çeviriyi yap
         official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        # Hem orijinal soruyu hem de akademik halini birleştir
+        # Hem orijinal soruyu hem de resmi halini arıyoruz (Garantici yaklaşım)
         hybrid_query = f"{question} {official_terms}"
     except:
         hybrid_query = question 
 
-    # --- 3. GENİŞ KAPSAMLI ARAMA (Retrieval) ---
+    # --- 3. ARAMA (Retrieval - 20 PDF İÇİN GÜÇLENDİRİLDİ) ---
     try:
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=25,           # 15'ten 25'e çıkardık (Daha çok veri)
-            fetch_k=80,    # Havuzu 100'e çıkardık (Daha geniş tarama)
-            lambda_mult=0.5 # Çeşitlilik
+            k=25,           # 25 parça getir (Geniş bağlam)
+            fetch_k=100,    # 100 parça içinden seç (Çeşitlilik artar)
+            lambda_mult=0.6 # Farklı konulardan da parça al
         )
     except Exception as e:
         return {"answer": f"Arama hatası: {str(e)}", "sources": []}
     
-    # --- 4. BAĞLAM OLUŞTURMA ---
+    # --- 4. BAĞLAM ---
     context_text = ""
     sources = []
     for i, doc in enumerate(docs):
-        # Yeni satır karakterlerini temizle ki tablo yapısı bozulmasın
-        clean_content = doc.page_content.replace("\n", "  ").strip()
-        context_text += f"\n[BÖLÜM {i+1}]: {clean_content}\n"
+        clean_content = doc.page_content.replace("\n", " ").strip()
+        context_text += f"\n[MADDE {i+1}]: {clean_content}\n"
         
-        # Kaynakça Listesi
         src = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
         src_str = f"{src} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. PROFESYONEL CEVAPLAYICI (Generator) ---
+    # --- 5. EVRENSEL CEVAPLAYICI (ARTIK HER YÖNETMELİĞE UYAR) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.2 # Düşük sıcaklık = Daha tutarlı cevaplar
+        temperature=0.2 
     )
     
     final_template = f"""
-    Sen Üniversite Mevzuat Asistanısın. Görevin, sağlanan belgeleri analiz ederek soruları yanıtlamaktır.
+    Sen Üniversite Mevzuat Asistanısın. Görevin, yüklenen belgeleri (Yönetmelik, Yönerge, Esaslar) analiz ederek soruları cevaplamaktır.
     
     BELGELER (Context):
     {context_text}
     
     SORU: {question}
     
-    ---  KESİN KURALLAR (HARFİYEN UYGULA) ---
+    --- ⚠️ EVRENSEL CEVAPLAMA KURALLARI ---
     
-    1. "BELGE PARÇASI" YASAGI:
-       - Cevabında ASLA "Belge Parçası 9'a göre", "Bölüm 3'te yazdığı gibi", "Chunk 5" gibi ifadeler KULLANMA.
-       - Bunun yerine: "Yönetmeliğe göre...", "İlgili madde uyarınca..." gibi profesyonel ifadeler kullan.
+    1. TESPİT ET VE EŞLEŞTİR:
+       - Kullanıcının kullandığı terimler belgede aynen geçmeyebilir. Bağlamı (Context) okuyarak doğru eşleşmeyi yap.
+       - Örn: Kullanıcı "Yemekhane kartı" sorabilir, belgede "Akıllı Kart" yazabilir. Bunu sen eşleştir.
        
-    2. TABLO VE SAYI OKUMA ZORUNLULUĞU:
-       - Kullanıcı "Onur Öğrencisi", "Yatay Geçiş", "Mezuniyet" gibi statü şartlarını soruyorsa;
-       - Metindeki sözel şartların (Disiplin cezası vb.) yanına tablolardaki SAYISAL DEĞERLERİ (Örn: 3.00 - 3.49 arası, en az 2.50) ekle.
-       - Eğer metinde "GANO" geçiyorsa, onun kaç olduğunu bulmadan cevabı bitirme.
+    2. SAYISAL HASSASİYET (TABLO OKUMA):
+       - Soru bir kriter, hak, süre veya puan içeriyorsa (Örn: Geçme notu, Burs miktarı, İzin süresi);
+       - Metin içindeki veya tablolardaki SAYISAL DEĞERLERİ (Rakam, Yüzde, Tarih) bulmadan cevap verme.
+       - "Onur öğrencisi" gibi statüler sorulduğunda not aralıklarını (Örn: 3.00-3.49) mutlaka yaz.
        
-    3. FORMAT:
-       - Cevabı net, anlaşılır maddeler (Bullet Points) halinde ver.
-       - Robotik değil, bir danışman gibi konuş.
+    3. PROFESYONEL ÜSLUP:
+       - "Belge Parçası 5'e göre" gibi ifadeler KULLANMA.
+       - "Yönetmeliğin ilgili maddesine göre...", "Belirtilen esaslar uyarınca..." gibi ifadeler kullan.
        
-    4. BİLİNMEYEN DURUM:
-       - Eğer tüm aramalara rağmen bilgi yoksa, uydurma. Sadece "Verilen dokümanlarda bu bilgi yer almıyor." de.
+    4. SINIRLAR:
+       - Cevabı sadece verilen metne dayandır. Metinde yoksa "Dokümanlarda bu bilgi yer almıyor" de.
     
     CEVAP:
     """
@@ -106,4 +101,4 @@ def generate_answer(question, vector_store, chat_history):
         answer = llm_answer.invoke(final_template).content
         return {"answer": answer, "sources": sources[:5]}
     except Exception as e:
-        return {"answer": f"Bir hata oluştu: {str(e)}", "sources": []}
+        return {"answer": f"Cevap üretme hatası: {str(e)}", "sources": []}
