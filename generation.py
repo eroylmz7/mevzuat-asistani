@@ -4,29 +4,29 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 def generate_answer(question, vector_store, chat_history):
     
-    # --- 1. GÜVENLİK VE AYARLAR ---
+    # --- 1. GÜVENLİK ---
     if "GOOGLE_API_KEY" in st.secrets:
         google_api_key = st.secrets["GOOGLE_API_KEY"]
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- 2. "DEDEKTİF" ÇEVİRMEN (SORUYU GENİŞLETİR) ---
+    # --- 2. ÇEVİRMEN VE "KİMLİK TESPİTİ" ---
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
         temperature=0.1 
     )
     
-    # BURADAKİ YENİLİK: Soru "Yapabilir miyim?" ise, arkasına "Limitleri ve Kısıtlamaları" diye ekletiyoruz.
+    # BURASI ÇOK ÖNEMLİ: Sorunun "Kime" ait olduğunu tespit ediyoruz.
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu, mevzuat veritabanında en detaylı sonucu bulacak şekilde "Akademik/Hukuki Arama Sorgusuna" dönüştür.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için detaylandır.
     
-    ANALİZ STRATEJİSİ:
-    1. EŞ ANLAMLILAR: "Vize" -> "Ara Sınav", "Af" -> "Öğrenci Affı", "Atılma" -> "İlişik Kesme".
-    2. GİZLİ KISITLAMALAR (ÇOK ÖNEMLİ): 
-       - Soru bir "İzin/Hak" içeriyorsa (Örn: "Ders saydırabilir miyim?", "Geçiş yapabilir miyim?");
-       - Arama sorgusuna mutlaka şunları ekle: "Azami Kredi Sınırı", "Yüzde (%) Limiti", "Başvuru Şartları", "Kısıtlamaları", "Senato Esasları".
-       - Amaç: Sadece "Evet yapılır" diyen maddeyi değil, "Ama şu kadar yapılır" diyen kısıtlama maddesini de bulmaktır.
+    ANALİZ ADIMLARI:
+    1. KİMLİK TESPİTİ: Soru "Lisans" öğrencisi için mi, "Yüksek Lisans/Doktora" öğrencisi için mi?
+       - İpuçları: "Tez", "Danışman Atama", "Yeterlik", "Seminer", "Yayın Şartı" geçerse -> LİSANSÜSTÜ.
+       - İpuçları: "ÇAP", "Yandal", "Yaz Okulu", "DC+", "DD+" geçerse -> LİSANS.
+    2. EŞ ANLAMLILAR: "Büt" -> "Bütünleme", "Af" -> "Öğrenci Affı".
+    3. SAYISAL VERİ: Soru bir süre (yıl/gün) veya puan soruyorsa, arama terimine "Süre Sınırı", "Azami Süre", "Geçerlilik" ekle.
     
     Soru: "{question}"
     Geliştirilmiş Arama Sorgusu:
@@ -38,13 +38,14 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. GENİŞ AÇILI ARAMA (RETRIEVAL) ---
+    # --- 3. RETRIEVAL (KAPASİTEYİ ARTIRDIK) ---
     try:
-        # k=30 yaparak modelin "Çevresel Görüşünü" artırıyoruz.
-        # Böylece cevap 5. sayfada, kısıtlaması 12. sayfadaysa ikisini de yakalar.
+        # k=50 yapıyoruz. Neden?
+        # Çünkü sistemde hem Lisans hem Lisansüstü belgeleri var. 
+        # "Yatay Geçiş" arattığında ikisinden de 20'şer parça gelebilir. Hepsini alıp Prompt'a yollamalıyız.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=30,           
+            k=50,           
             fetch_k=100,    
             lambda_mult=0.5 
         )
@@ -55,58 +56,55 @@ def generate_answer(question, vector_store, chat_history):
     context_text = ""
     sources = []
     for i, doc in enumerate(docs):
-        # Satır sonlarını temizle ki tablolar bozulmasın
         clean_content = doc.page_content.replace("\n", " ").strip()
-        context_text += f"\n[DOKÜMAN BÖLÜMÜ {i+1}]: {clean_content}\n"
+        source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         
-        # Kaynak Adı Temizleme
-        src = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
+        # Modele hangi bilginin hangi dosyadan geldiğini açıkça söylüyoruz.
+        context_text += f"\n[KAYNAK DOSYA: {source_name}] -> İÇERİK: {clean_content}\n"
+        
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
-        src_str = f"{src} (Sayfa {page})"
+        src_str = f"{source_name} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. ŞÜPHECİ CEVAPLAYICI (GENERATOR) ---
-    # Gemini'ye "Denetçi" (Auditor) rolü veriyoruz.
+    # --- 5. CEVAPLAYICI (KAYNAK SEÇİCİ MODU) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0 # Sıfır hata toleransı
+        temperature=0.0
     )
     
     final_template = f"""
-    Sen, Üniversite Mevzuat Denetçisisin. Görevin, belgelerdeki kuralları en ince ayrıntısına kadar inceleyip kullanıcıya kesin ve eksiksiz bilgi vermektir.
+    Sen, Üniversite Mevzuat Uzmanısın. Elinde hem "LİSANS" hem de "LİSANSÜSTÜ" (Yüksek Lisans/Doktora) yönetmelikleri var.
+    Görevin, soruya uygun olan DOĞRU yönetmeliği seçip oradan cevap vermektir.
     
-    BELGELER (KANITLAR):
+    ELİNDEKİ BELGELER (Context):
     {context_text}
     
     SORU: {question}
     
-    --- 🧠 ANALİZ VE KONTROL SÜRECİ (DİKKATLE UYGULA) ---
+    --- ⚠️ BELGE SEÇİM VE AYRIŞTIRMA KURALLARI (ÇOK KRİTİK) ---
     
-    ADIM 1: TEMEL CEVABI BUL
-    - Sorunun cevabı "Evet" mi, "Hayır" mı? Önce bunu belirle.
+    1. HEDEF KİTLE KONTROLÜ:
+       - Soru "Yüksek Lisans", "Doktora", "Tez", "Yeterlik", "Danışman" veya "Yayın" içeriyorsa -> SADECE dosya adında "lisansustu" geçen belgelere bak. "lisans_yonetmeligi.pdf" dosyasını GÖRMEZDEN GEL.
+       - Soru "Lisans", "Ön Lisans", "ÇAP", "Yandal" içeriyorsa -> "lisans_yonetmeligi.pdf" dosyasına bak.
+       
+    2. ÇELİŞKİ YÖNETİMİ:
+       - Eğer "Lisans Yönetmeliği"nde süre 5 yıl, "Lisansüstü"nde süre sınırsız diyorsa; sorunun bağlamına göre doğru olanı seç. Karıştırma.
+       - Emin değilsen: "Lisans yönetmeliğine göre şöyle, Lisansüstü yönetmeliğine göre böyledir" diye ayrım yaparak cevap ver.
+       
+    3. SAYISAL VERİ AVCILIĞI:
+       - Soruda "Kaç yıl?", "Ne kadar süre?" varsa, metindeki "5 yıl", "3 ay", "Son ... yıl içinde" ifadelerini mutlaka bul.
     
-    ADIM 2: "AMA" KONTROLÜ (KISITLAMA AVCISI) 🕵️‍♂️
-    - Eğer cevap "Evet" ise, hemen sevinme. Metinde şu kelimeleri tara: "Ancak", "Şartıyla", "En fazla", "En az", "%", "Oran", "Dahil edilmez".
-    - ÖRNEK: "Ders saydırılır" yazıyorsa, hemen yanında "%50'sini geçemez" veya "Yönetim kurulu kararı gerekir" yazıyor mu? Varsa MUTLAKA ekle.
-    
-    ADIM 3: TARİH VE HİYERARŞİ KONTROLÜ
-    - Eğer iki belge çelişiyorsa (Örn: Biri 2016, biri 2025 tarihli), her zaman YENİ TARİHLİ olan belgeyi esas al.
-    - Metinde "Senato tarafından belirlenir" yazıyorsa ve elindeki belgelerde "Uygulama Esasları" veya "Senato Kararı" varsa, cevabı oradan çek.
-    
-    ADIM 4: NETLİK
-    - Cevabında "Belge Parçası 5" gibi teknik terimler kullanma.
-    - Cevaplayamadığın veya emin olmadığın durumlarda "Belgelerde net bir kısıtlama/oran belirtilmemiştir" de.
-    
-    --- CEVAP FORMATI ---
-    Cevabı doğrudan kullanıcıya hitaben, profesyonel, açıklayıcı ve madde madde yaz.
+    --- 🚫 FORMAT YASAKLARI ---
+    - Cevap metninde "[KAYNAK DOSYA: ...]" gibi teknik etiketleri kullanıcıya gösterme.
+    - Sadece profesyonel bir dille "Yönetmeliğe göre..." de.
     
     CEVAP:
     """
     
     try:
         answer = llm_answer.invoke(final_template).content
-        return {"answer": answer, "sources": sources[:5]} # En alakalı 5 kaynağı göster
+        return {"answer": answer, "sources": sources[:5]}
     except Exception as e:
-        return {"answer": f"Cevap oluşturulurken hata: {str(e)}", "sources": []}
+        return {"answer": f"Cevap oluşturma hatası: {str(e)}", "sources": []}
