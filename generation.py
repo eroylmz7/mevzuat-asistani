@@ -4,101 +4,109 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 def generate_answer(question, vector_store, chat_history):
     
-    # --- 1. AYARLAR ---
+    # --- 1. GÜVENLİK VE AYARLAR ---
     if "GOOGLE_API_KEY" in st.secrets:
         google_api_key = st.secrets["GOOGLE_API_KEY"]
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- 2. EVRENSEL ÇEVİRMEN (ARTIK KELİME EZBERLEMİYOR) ---
-    # Gemini'ye diyoruz ki: "Sen Akademik Literatür Uzmanısın. Hangi kelimenin ne anlama geldiğini sen bul."
+    # --- 2. "DEDEKTİF" ÇEVİRMEN (SORUYU GENİŞLETİR) ---
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
         temperature=0.1 
     )
     
-    # BURASI DEĞİŞTİ: Artık "Vize=Ara Sınav" diye elle yazmıyoruz. Genel kural koyuyoruz.
+    # BURADAKİ YENİLİK: Soru "Yapabilir miyim?" ise, arkasına "Limitleri ve Kısıtlamaları" diye ekletiyoruz.
     translation_prompt = f"""
-    GÖREV: Kullanıcının sorusunu analiz et ve belge araması için "Resmi Mevzuat Literatürü"ne çevir.
+    GÖREV: Kullanıcı sorusunu, mevzuat veritabanında en detaylı sonucu bulacak şekilde "Akademik/Hukuki Arama Sorgusuna" dönüştür.
     
-    ANALİZ KURALLARI:
-    1. HALK DİLİ -> RESMİ DİL: Kullanıcı "atılma", "kovulma", "büt", "vize", "dondurma" gibi günlük ifadeler kullanabilir. Sen bunları yönetmeliklerde geçen RESMİ KARŞILIKLARINA (Örn: İlişik Kesme, Bütünleme, Ara Sınav, Kayıt Dondurma) dönüştür.
-    2. SAYISAL VERİ İPUÇLARI: Eğer soru "Ne kadar?", "Kaç?", "Şartı nedir?", "Süresi ne?" gibi nicelik soruyorsa; arama terimine "Süreleri", "Puanları", "Tablosu", "Oranları", "Kriterleri" gibi ifadeler ekle.
+    ANALİZ STRATEJİSİ:
+    1. EŞ ANLAMLILAR: "Vize" -> "Ara Sınav", "Af" -> "Öğrenci Affı", "Atılma" -> "İlişik Kesme".
+    2. GİZLİ KISITLAMALAR (ÇOK ÖNEMLİ): 
+       - Soru bir "İzin/Hak" içeriyorsa (Örn: "Ders saydırabilir miyim?", "Geçiş yapabilir miyim?");
+       - Arama sorgusuna mutlaka şunları ekle: "Azami Kredi Sınırı", "Yüzde (%) Limiti", "Başvuru Şartları", "Kısıtlamaları", "Senato Esasları".
+       - Amaç: Sadece "Evet yapılır" diyen maddeyi değil, "Ama şu kadar yapılır" diyen kısıtlama maddesini de bulmaktır.
     
     Soru: "{question}"
-    Akademik Arama Cümlesi:
+    Geliştirilmiş Arama Sorgusu:
     """
     
     try:
         official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        # Hem orijinal soruyu hem de resmi halini arıyoruz (Garantici yaklaşım)
         hybrid_query = f"{question} {official_terms}"
     except:
         hybrid_query = question 
 
-    # --- 3. ARAMA (Retrieval - 20 PDF İÇİN GÜÇLENDİRİLDİ) ---
+    # --- 3. GENİŞ AÇILI ARAMA (RETRIEVAL) ---
     try:
+        # k=30 yaparak modelin "Çevresel Görüşünü" artırıyoruz.
+        # Böylece cevap 5. sayfada, kısıtlaması 12. sayfadaysa ikisini de yakalar.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=25,           # 25 parça getir (Geniş bağlam)
-            fetch_k=100,    # 100 parça içinden seç (Çeşitlilik artar)
-            lambda_mult=0.6 # Farklı konulardan da parça al
+            k=30,           
+            fetch_k=100,    
+            lambda_mult=0.5 
         )
     except Exception as e:
         return {"answer": f"Arama hatası: {str(e)}", "sources": []}
     
-    # --- 4. BAĞLAM ---
+    # --- 4. BAĞLAM (CONTEXT) HAZIRLIĞI ---
     context_text = ""
     sources = []
     for i, doc in enumerate(docs):
+        # Satır sonlarını temizle ki tablolar bozulmasın
         clean_content = doc.page_content.replace("\n", " ").strip()
-        context_text += f"\n[MADDE {i+1}]: {clean_content}\n"
+        context_text += f"\n[DOKÜMAN BÖLÜMÜ {i+1}]: {clean_content}\n"
         
+        # Kaynak Adı Temizleme
         src = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
         src_str = f"{src} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. EVRENSEL CEVAPLAYICI (ARTIK HER YÖNETMELİĞE UYAR) ---
+    # --- 5. ŞÜPHECİ CEVAPLAYICI (GENERATOR) ---
+    # Gemini'ye "Denetçi" (Auditor) rolü veriyoruz.
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.2 
+        temperature=0.0 # Sıfır hata toleransı
     )
     
     final_template = f"""
-    Sen Üniversite Mevzuat Asistanısın. Görevin, yüklenen belgeleri (Yönetmelik, Yönerge, Esaslar) analiz ederek soruları cevaplamaktır.
+    Sen, Üniversite Mevzuat Denetçisisin. Görevin, belgelerdeki kuralları en ince ayrıntısına kadar inceleyip kullanıcıya kesin ve eksiksiz bilgi vermektir.
     
-    BELGELER (Context):
+    BELGELER (KANITLAR):
     {context_text}
     
     SORU: {question}
     
-    --- ⚠️ EVRENSEL CEVAPLAMA KURALLARI ---
+    --- 🧠 ANALİZ VE KONTROL SÜRECİ (DİKKATLE UYGULA) ---
     
-    1. TESPİT ET VE EŞLEŞTİR:
-       - Kullanıcının kullandığı terimler belgede aynen geçmeyebilir. Bağlamı (Context) okuyarak doğru eşleşmeyi yap.
-       - Örn: Kullanıcı "Yemekhane kartı" sorabilir, belgede "Akıllı Kart" yazabilir. Bunu sen eşleştir.
-       
-    2. SAYISAL HASSASİYET (TABLO OKUMA):
-       - Soru bir kriter, hak, süre veya puan içeriyorsa (Örn: Geçme notu, Burs miktarı, İzin süresi);
-       - Metin içindeki veya tablolardaki SAYISAL DEĞERLERİ (Rakam, Yüzde, Tarih) bulmadan cevap verme.
-       - "Onur öğrencisi" gibi statüler sorulduğunda not aralıklarını (Örn: 3.00-3.49) mutlaka yaz.
-       
-    3. PROFESYONEL ÜSLUP:
-       - "Belge Parçası 5'e göre" gibi ifadeler KULLANMA.
-       - "Yönetmeliğin ilgili maddesine göre...", "Belirtilen esaslar uyarınca..." gibi ifadeler kullan.
-       
-    4. SINIRLAR:
-       - Cevabı sadece verilen metne dayandır. Metinde yoksa "Dokümanlarda bu bilgi yer almıyor" de.
+    ADIM 1: TEMEL CEVABI BUL
+    - Sorunun cevabı "Evet" mi, "Hayır" mı? Önce bunu belirle.
+    
+    ADIM 2: "AMA" KONTROLÜ (KISITLAMA AVCISI) 🕵️‍♂️
+    - Eğer cevap "Evet" ise, hemen sevinme. Metinde şu kelimeleri tara: "Ancak", "Şartıyla", "En fazla", "En az", "%", "Oran", "Dahil edilmez".
+    - ÖRNEK: "Ders saydırılır" yazıyorsa, hemen yanında "%50'sini geçemez" veya "Yönetim kurulu kararı gerekir" yazıyor mu? Varsa MUTLAKA ekle.
+    
+    ADIM 3: TARİH VE HİYERARŞİ KONTROLÜ
+    - Eğer iki belge çelişiyorsa (Örn: Biri 2016, biri 2025 tarihli), her zaman YENİ TARİHLİ olan belgeyi esas al.
+    - Metinde "Senato tarafından belirlenir" yazıyorsa ve elindeki belgelerde "Uygulama Esasları" veya "Senato Kararı" varsa, cevabı oradan çek.
+    
+    ADIM 4: NETLİK
+    - Cevabında "Belge Parçası 5" gibi teknik terimler kullanma.
+    - Cevaplayamadığın veya emin olmadığın durumlarda "Belgelerde net bir kısıtlama/oran belirtilmemiştir" de.
+    
+    --- CEVAP FORMATI ---
+    Cevabı doğrudan kullanıcıya hitaben, profesyonel, açıklayıcı ve madde madde yaz.
     
     CEVAP:
     """
     
     try:
         answer = llm_answer.invoke(final_template).content
-        return {"answer": answer, "sources": sources[:5]}
+        return {"answer": answer, "sources": sources[:5]} # En alakalı 5 kaynağı göster
     except Exception as e:
-        return {"answer": f"Cevap üretme hatası: {str(e)}", "sources": []}
+        return {"answer": f"Cevap oluşturulurken hata: {str(e)}", "sources": []}
