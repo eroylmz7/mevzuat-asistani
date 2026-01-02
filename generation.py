@@ -136,6 +136,10 @@ def generate_answer(question, vector_store, chat_history):
     KURAL 5: REFERANS FORMATI
     - Cevap verirken, bilgiyi hangi belgeden aldığını belirtmek için cümle sonuna formatını kullan.
     - Örnek: "Yüksek lisans için ALES puanı en az 55 olmalıdır."
+
+    KURAL 6: TABLO OKUMA ŞÜPHECİLİĞİ
+    - Metinler PDF tablolarından geldiği için satırlar birbirine karışmış olabilir.
+    - Metinler seçilebilir olsa da (selectable text) bu pdf fotokopi çıktısı taranarak elde edilmiş olabilir, dikkat et.
     
     CEVAP:
     """
