@@ -134,7 +134,7 @@ def generate_answer(question, vector_store, chat_history):
     - Tahmin yürütme, yorum yapma. Sadece metinde yazanı aktar.
     
     KURAL 5: REFERANS FORMATI
-    - Cevap verirken, bilgiyi hangi belgeden aldığını belirtmek için cümle sonuna formatını kullan.
+    - Cevap verirken, en son olarak bilgiyi hangi belgeden aldığını belirtmek için cümle sonuna formatını kullan.
     - Örnek: "Yüksek lisans için ALES puanı en az 55 olmalıdır."
 
     KURAL 6: TABLO OKUMA ŞÜPHECİLİĞİ
