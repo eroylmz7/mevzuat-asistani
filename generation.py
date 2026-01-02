@@ -10,28 +10,28 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    # --- 2. ANALİST AJAN ---
+    # --- 2. ANALİST AJAN (Sorgu Zenginleştirme) ---
     llm_translator = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
         temperature=0.1 
     )
     
-    # BURADA "ORTAK KONULAR" MANTIĞINI EKLİYORUZ
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için zenginleştir.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için en kritik anahtar kelimeleri ekle.
     
     ANALİZ ADIMLARI:
-    1. KİMLİK VE KONU TESPİTİ:
-       - "LİSANSÜSTÜ": Soru "Tez", "Danışman", "Yeterlik", "Yayın Şartı", "Doktora" içeriyorsa.
-       - "LİSANS": Soru "ÇAP", "Yandal", "DC+", "DD+" içeriyorsa.
-       - "ORTAK/GENEL": Soru "Yatay Geçiş", "Muafiyet", "Kayıt Dondurma", "Devam Zorunluluğu", "İtiraz" gibi her iki seviyede de olan konuları içeriyorsa.
+    1. KONU TESPİTİ:
+       - Akademik: "Tez", "Sınav", "Ders", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
+       - İdari: "Rektör", "Personel", "İzin", "Teşkilat", "Atama" -> "İDARİ MEVZUAT"
+       - Disiplin: "Ceza", "Kopya", "Uzaklaştırma" -> "DİSİPLİN SUÇU"
        
-    2. ARAMA TERİMLERİ:
-       - Soru bir "Zaman" veya "Yıl" soruyorsa (Örn: "Kaç yıl önce?"): Sorguya "Süre Sınırı", "Geçerlilik Süresi", "Zaman Aşımı", "Son ... yıl" terimlerini ekle.
+    2. GÜNCELLİK VE DETAY:
+       - Soru "Yayın şartı", "Mezuniyet kriteri" içeriyorsa -> "Senato Kararı", "Yayın Esasları", "Ek Madde" terimlerini ekle.
+       - Soru bir tarih veya yürürlük soruyorsa -> "Yürürlük Tarihi", "Geçici Madde" ekle.
     
     Soru: "{question}"
-    Geliştirilmiş Arama Sorgusu:
+    Geliştirilmiş Arama Sorgusu (Sadece terimler):
     """
     
     try:
@@ -40,72 +40,101 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. RETRIEVAL (GENİŞ HAVUZ) ---
+    # --- 3. RETRIEVAL (KAPSAYICI HAVUZ) ---
     try:
-        # k=60 yapıyoruz ki hem Lisans hem Lisansüstü belgelerinden ilgili maddeler gelebilsin.
+        # k=70 yapıyoruz. Neden? 
+        # Çünkü "Yayın Şartı" arandığında eski yönetmelik (Genel) puanı yüksek çıkıp öne geçebilir.
+        # Yeni ve kısa belge (Özel) aşağılarda kalmasın diye havuzu genişletiyoruz.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=60,           
+            k=70,           
             fetch_k=100,    
             lambda_mult=0.5 
         )
     except Exception as e:
-        return {"answer": f"Arama hatası: {str(e)}", "sources": []}
+        return {"answer": f"Veritabanı arama hatası: {str(e)}", "sources": []}
     
-    # --- 4. BAĞLAM (CONTEXT) HAZIRLIĞI ---
+    # --- 4. AKILLI ETİKETLEME VE ÖNCELİKLENDİRME ---
     context_text = ""
     sources = []
-    for i, doc in enumerate(docs):
-        clean_content = doc.page_content.replace("\n", " ").strip()
-        source_name = os.path.basename(doc.metadata.get("source", "Bilinmiyor")).lower()
+    
+    for doc in docs:
+        content = doc.page_content.replace("\n", " ").strip()
+        filename = os.path.basename(doc.metadata.get("source", "Bilinmiyor")).lower()
         
-        # Dosya adına göre etiketleme
-        if "lisansustu" in source_name:
-            label = "LİSANSÜSTÜ YÖNETMELİĞİ"
-        elif "lisans" in source_name and "lisansustu" not in source_name:
-            label = "LİSANS YÖNETMELİĞİ"
+        # --- DOSYA ÖNCELİK ALGORİTMASI ---
+        # Dosya ismine bakarak yapay zekaya "Bu belgeye ne kadar güvenmelisin?" sinyali veriyoruz.
+        
+        priority_tag = ""
+        doc_category = "GENEL BELGE"
+        
+        # 1. EN YÜKSEK ÖNCELİK (Özel Esaslar, Ekler, Senato Kararları)
+        if any(x in filename for x in ["tezyayın", "sart", "ek", "karar", "uygulama"]):
+            priority_tag = "🔥 [YÜKSEK ÖNCELİK / ÖZEL HÜKÜM]"
+            doc_category = "ÖZEL SENATO KARARI/YÖNERGESİ"
+            
+        # 2. ORTA ÖNCELİK (Yönetmelikler)
+        elif "yonetmelik" in filename:
+            doc_category = "GENEL YÖNETMELİK"
+            
+        # 3. KATEGORİ ETİKETLEME (Bağlam Karışıklığını Önlemek İçin)
+        if "lisansustu" in filename:
+            scope_tag = "(KAPSAM: LİSANSÜSTÜ)"
+        elif "lisans" in filename and "lisansustu" not in filename:
+            scope_tag = "(KAPSAM: LİSANS/ÖNLİSANS)"
+        elif "teskilat" in filename or "personel" in filename:
+            scope_tag = "(KAPSAM: İDARİ/PERSONEL)"
         else:
-            label = "DİĞER YÖNERGE"
+            scope_tag = "(KAPSAM: GENEL)"
 
-        context_text += f"\n[KAYNAK: {label} ({source_name})] -> İÇERİK: {clean_content}\n"
+        # Yapay Zekaya Gidecek Metin Bloğu
+        context_text += f"\n--- DOSYA: {filename} {priority_tag} {scope_tag} ---\nİÇERİK: {content}\n"
         
+        # Kaynak Listesi
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
-        src_str = f"{source_name} (Sayfa {page})"
+        src_str = f"{filename} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
 
-    # --- 5. CEVAPLAYICI (ESNEK MOD) ---
+    # --- 5. CEVAPLAYICI (HUKUKÇU MODU) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0
+        temperature=0.0 # Yaratıcılık sıfır, sadece kanıt.
     )
     
     final_template = f"""
-    Sen, Üniversite Mevzuat Uzmanısın. Elindeki belgeleri analiz ederek soruya cevap ver.
+    Sen, Üniversite Mevzuat Analistisin. Görevin, belgeleri hukuki hiyerarşi kurallarına göre analiz edip KESİN ve DOĞRU cevabı vermektir.
     
     ELİNDEKİ BELGELER (Context):
     {context_text}
     
     SORU: {question}
     
-    --- ⚠️ CEVAPLAMA STRATEJİSİ ---
+    --- 🧠 KARAR VERME MEKANİZMASI (BU KURALLARA UY) ---
     
-    1. BELGE ÖNCELİĞİ (FİLTRELEME DEĞİL, ÖNCELİKLENDİRME):
-       - Eğer kullanıcı soruda "Yüksek Lisans" veya "Doktora" dememişse bile; aradığı cevap (örneğin "5 yıl" kuralı) SADECE "LİSANSÜSTÜ" belgesinde yazıyorsa, o bilgiyi kullan ve kaynağını belirt.
-       - "Görmezden gel" kuralını unut. Eğer bir belgede net bir sayısal kısıtlama (yıl, gün, puan) varsa, o bilgiyi kullanıcıya sun.
-       
-    2. AYRIM YAPMA:
-       - Eğer hem Lisans hem Lisansüstü belgelerinde farklı bilgiler varsa, cevabı ayır:
-         * **Lisans Yönetmeliğine Göre:** ...
-         * **Lisansüstü Yönetmeliğine Göre:** ...
-         
-    3. SAYISAL DETAYLAR:
-       - Soru "Kaç yıl?", "Ne zaman?" içeriyorsa; metindeki "5 yıl", "3 ay", "Son ... yıl içinde" ifadelerini mutlaka bul ve cevaba ekle.
+    KURAL 1: BELGE TÜRÜNÜ TANI
+    - Soru "Akademik" (Öğrenci, Sınav) ise -> Akademik belgelere bak.
+    - Soru "İdari" (Rektör, Personel, Teşkilat) ise -> İdari belgelere bak (Öğrenci yönetmeliğini karıştırma).
     
-    --- 🚫 FORMAT ---
-    - "[KAYNAK: ...]" etiketlerini cevap metninde kullanma.
-    - Kaynağı "Uludağ Üniversitesi Lisansüstü Eğitim Yönetmeliği'ne göre..." şeklinde cümle içinde geçir.
+    KURAL 2: HİYERARŞİ VE GÜNCELLİK (EN ÖNEMLİ KURAL) ⚖️
+    - Eğer iki belge arasında çelişki varsa (Örn: Biri "X yapılabilir", diğeri "X yasaktır" diyorsa):
+      A) Başlığında "🔥 [YÜKSEK ÖNCELİK]" yazan belgeye İTAAT ET. (O belge daha özel veya daha günceldir).
+      B) Tarihi YENİ olan belgeye İTAAT ET (Metin içindeki tarihlere bak: 2025 > 2020).
+      C) "Özel Hüküm" (Yönerge/Esaslar), "Genel Hüküm"den (Yönetmelik) üstündür.
+    
+    KURAL 3: KAPSAM İZOLASYONU
+    - Soru "Yüksek Lisans" ise -> "Doktora" başlıklarını GÖRMEZDEN GEL.
+    - Soru "Doktora" ise -> "Yüksek Lisans" başlıklarını GÖRMEZDEN GEL.
+    - Soru "Personel/İdari" ise -> Akademik öğrenci kurallarını GÖRMEZDEN GEL.
+    
+    KURAL 4: HALÜSİNASYON ENGELLEME 🚫
+    - Belgede açıkça yazmıyorsa "Belgelerde bu bilgi bulunmamaktadır" de.
+    - Tahmin yürütme, yorum yapma. Sadece metinde yazanı aktar.
+    
+    KURAL 5: REFERANS FORMATI
+    - Cevap verirken, bilgiyi hangi belgeden aldığını belirtmek için cümle sonuna formatını kullan.
+    - Örnek: "Yüksek lisans için ALES puanı en az 55 olmalıdır."
     
     CEVAP:
     """
@@ -114,4 +143,4 @@ def generate_answer(question, vector_store, chat_history):
         answer = llm_answer.invoke(final_template).content
         return {"answer": answer, "sources": sources[:5]}
     except Exception as e:
-        return {"answer": f"Cevap oluşturma hatası: {str(e)}", "sources": []}
+        return {"answer": f"Cevap oluşturulurken hata: {str(e)}", "sources": []}
