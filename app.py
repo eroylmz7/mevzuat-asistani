@@ -381,23 +381,3 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                 except Exception as e:
                     # 3 kere denemesine rağmen olmazsa veya başka hata varsa burası çalışır
                     st.error(f"😔 Bir bağlantı sorunu oluştu (Hata: {str(e)}). Lütfen tekrar deneyin.")
-
-# --- DEBUG: VERİTABANI İÇERİK KONTROLÜ ---
-if st.sidebar.button("Veritabanı Röntgenini Çek 🧐"):
-    try:
-        # ChromaDB koleksiyonuna bağlan
-        db_content = vector_store.get() # Tüm veriyi çek
-        unique_sources = set()
-        
-        # Metadata içinden kaynak isimlerini ayıkla
-        if "metadatas" in db_content:
-            for meta in db_content["metadatas"]:
-                if meta and "source" in meta:
-                    unique_sources.add(meta["source"])
-        
-        st.sidebar.success(f"İndekslenmiş {len(unique_sources)} Dosya Bulundu:")
-        for src in unique_sources:
-            st.sidebar.code(os.path.basename(src))
-            
-    except Exception as e:
-        st.sidebar.error(f"Hata: {str(e)}")
