@@ -329,7 +329,6 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
             with st.spinner("Gemini (Cloud) düşünüyor..."):
                 try:
                     # --- YENİ RETRY (TEKRAR DENEME) MEKANİZMASI BAŞLANGICI ---
-                    # Google bazen 504 hatası verdiği için, pes etmeden 3 kere deneyeceğiz.
                     sonuc = None
                     max_deneme = 3
                     

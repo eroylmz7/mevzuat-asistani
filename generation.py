@@ -127,6 +127,7 @@ def generate_answer(question, vector_store, chat_history):
     - Soru "Yüksek Lisans" ise -> "Doktora" başlıklarını GÖRMEZDEN GEL.
     - Soru "Doktora" ise -> "Yüksek Lisans" başlıklarını GÖRMEZDEN GEL.
     - Soru "Personel/İdari" ise -> Akademik öğrenci kurallarını GÖRMEZDEN GEL.
+    - Belgelerin bazıları TABLO formatındadır. Satır ve sütunların kaymış olabileceğini unutma.
     
     KURAL 4: HALÜSİNASYON ENGELLEME 🚫
     - Belgede açıkça yazmıyorsa "Belgelerde bu bilgi bulunmamaktadır" de.
