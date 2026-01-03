@@ -18,12 +18,12 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. YAPISAL İSKELET ANALİZİ (STRUKTÜREL DEDEKTİF) 🕵️‍♂️ ---
+# --- 2. YAPISAL MÜHENDİS DEDEKTİF (STRUKTÜREL ANALİZ) 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    Kelimelere veya çizgilere bakmaz.
-    Metin bloklarının sayfadaki DAĞILIMINA bakar.
-    Aynı satırda çok fazla ayrı blok varsa (Sütun yapısı), Vision açar.
+    Kelimelere bakmaz. Belgenin 'İskelet Yapısını' analiz eder.
+    1. Blok Sayısı (Tablolarda çok yüksektir).
+    2. Yatay/Dikey Çizgi Sayısı (Tablolarda ızgara oluşturur).
     """
     try:
         doc = fitz.open(file_path)
@@ -34,43 +34,52 @@ def analyze_pdf_complexity(file_path):
         for i in range(pages_to_check):
             page = doc[i]
             
-            # Sayfadaki tüm metin bloklarını ve koordinatlarını al
-            # flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE
-            blocks = page.get_text("blocks") 
+            # --- KRİTER 1: METİN BLOK YOĞUNLUĞU ---
+            # Standart metinlerde paragraflar birleşiktir (Az blok).
+            # Tablolarda her hücre ayrı bir metin bloğudur (Çok blok).
+            text_blocks = page.get_text("blocks")
+            block_count = len(text_blocks)
             
-            # Blok formatı: (x0, y0, x1, y1, "text", block_no, block_type)
-            
-            # 1. Satır Analizi (Y-koordinatına göre gruplama)
-            rows = {}
-            for b in blocks:
-                # Sadece metin bloklarını al (Resim vb. hariç)
-                if b[6] == 0: 
-                    y_center = round((b[1] + b[3]) / 2, -1) # Y eksenini yuvarla (Hizalama toleransı için)
-                    if y_center not in rows:
-                        rows[y_center] = []
-                    rows[y_center].append(b)
-            
-            # 2. Karmaşık Satır Sayımı
-            # Bir satırda 3 veya daha fazla ayrı metin bloğu varsa, o satır "Tablo Satırı"dır.
-            complex_row_count = 0
-            for y, row_blocks in rows.items():
-                if len(row_blocks) >= 3:
-                    complex_row_count += 1
-            
-            # Eşik Değer: Eğer sayfada 5'ten fazla tablo satırı varsa, bu bir tablodur.
-            # Lisans yönetmeliğinde satırlar tek parça olduğu için bu sayı 0-1 çıkar.
-            # Tez yayın şartında ise her satırda en az 3 blok (Derece | Şart | Belge) olduğu için yüksek çıkar.
-            if complex_row_count >= 5:
-                return True, f"Yoğun Sütun Yapısı Tespit Edildi ({complex_row_count} adet çoklu satır)"
+            # Eşik Değer: Bir sayfada 40'tan fazla ayrı metin parçası varsa, 
+            # bu %99 ihtimalle karmaşık bir tablodur. (Yönetmeliklerde genelde 10-15 olur).
+            if block_count > 40:
+                return True, f"Yüksek Parçalanma Tespit Edildi ({block_count} metin bloğu)"
 
-        return False, "Standart Akış Metni"
+            # --- KRİTER 2: IZGARA (GRID) ANALİZİ ---
+            # Sadece çizgi saymak yetmez, yönlerine bakacağız.
+            drawings = page.get_drawings()
+            horizontal_lines = 0
+            vertical_lines = 0
+            
+            for d in drawings:
+                # 'rect' (kutu) veya 'line' (çizgi) olabilir.
+                # Çizginin boyuna bakarak "süs" mü "yapı" mı olduğunu anlarız.
+                rect = d['rect']
+                width = rect.width
+                height = rect.height
+                
+                # Yatay Çizgi: Genişliği yüksek, yüksekliği az
+                if width > 100 and height < 5:
+                    horizontal_lines += 1
+                
+                # Dikey Çizgi: Yüksekliği fazla, genişliği az
+                if height > 50 and width < 5:
+                    vertical_lines += 1
+            
+            # KARAR ANI:
+            # Yönetmelik Çerçevesi: 2 Yatay + 2 Dikey çizgi olur.
+            # Gerçek Tablo: Satır sayısı kadar Yatay (>5), Sütun sayısı kadar Dikey (>2) olur.
+            if horizontal_lines > 5 and vertical_lines > 2:
+                return True, f"Tablo Izgarası Tespit Edildi ({horizontal_lines} Yatay, {vertical_lines} Dikey Çizgi)"
+        
+        # Eğer yukarıdaki şartları sağlamıyorsa, çerçeveli bile olsa standart metindir.
+        return False, "Standart Yapı (Izgara veya Parçalanma Yok)"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
-        # Hata durumunda güvenli moda geçme, standart devam et
         return False, "Analiz Hatası -> Standart Mod"
 
-# --- 3. VISION OKUMA (SESSİZ VE GÜVENLİ) ---
+# --- 3. VISION OKUMA (SESSİZ VE GÜÇLÜ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -97,11 +106,12 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
+            # Prompt: Yapısal bütünlüğü koru
             prompt = """
             GÖREV: Bu belgeyi analiz et.
-            1. Eğer bir TABLO varsa, satır ve sütun ilişkisini bozmadan Markdown formatına çevir.
-            2. Tablodaki her maddenin başına ilgili ana başlığı (Örn: "DOKTORA") ekle.
-            3. Dipnotları metinle ilişkilendir.
+            1. Eğer sayfada TABLO varsa, tabloyu bozmadan Markdown formatına çevir.
+            2. Tablodaki her satırın başına, o satırın ait olduğu ana başlığı (Örn: "DOKTORA") ekle.
+            3. Dipnotları metinle birleştir.
             """
             
             response = model.generate_content(
@@ -145,6 +155,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
+            # EKRAN BİLDİRİMLERİ (DEBUG)
             if is_complex:
                 st.warning(f"🟠 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
@@ -218,7 +229,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞERLERİ AYNI ---
+# --- DİĞER FONKSİYONLAR AYNI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
