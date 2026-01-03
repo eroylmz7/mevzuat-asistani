@@ -17,90 +17,85 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. GERÇEK DEDEKTİF: İÇERİK VE YAPI ANALİZİ ---
+# --- 2. DEDEKTİF (İÇERİK ANALİZİ) ---
 def analyze_pdf_complexity(file_path):
-    """
-    Dosya adına ASLA bakmadan, sadece içeriği analiz eder.
-    
-    Döner: (bool, str) -> (Vision Gerekli mi?, Sebebi ne?)
-    """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
-        # Analiz için ilk 3 sayfaya bakmak yeterli ve hızlıdır
+        # İlk 3 sayfaya bak
         pages_to_check = min(len(doc), 3)
-        
         for i in range(pages_to_check):
             page = doc[i]
             
-            # --- ANALİZ 1: GEOMETRİ (TABLO YOĞUNLUĞU) ---
-            # Sayfadaki tüm vektör çizimlerini (çizgi, kutu, tablo kenarlığı) sayar.
+            # Tablo Çizgisi Kontrolü (Eşik: 20)
             drawings = page.get_drawings()
-            
-            # Eşik Değeri: 20
-            # Düz metinlerde (Yönetmelik vb.) genelde 0-5 arası çizgi olur (altbilgi/üstbilgi).
-            # Tablolu belgelerde her hücre bir kutudur, sayı anında 50-100'e çıkar.
             if len(drawings) > 20:
-                return True, f"Sayfa {i+1}'de Yoğun Tablo Yapısı ({len(drawings)} çizgi)"
-
-            # --- ANALİZ 2: DİLBİLİM (KARAKTER BOZUKLUĞU / ENCODING) ---
-            # Sayfadaki metni normal yolla çekip "Okunabilir Türkçe mi?" diye bakarız.
-            text = page.get_text().lower()
+                return True, f"Sayfa {i+1}'de Yoğun Tablo ({len(drawings)} çizgi)"
             
-            # Eğer sayfada yeterince yazı varsa (50 harften fazla) test et
+            # Dil/Encoding Kontrolü
+            text = page.get_text().lower()
             if len(text) > 50:
-                # Bu kelimeler Türkçe metinlerde %99 ihtimalle geçer.
-                # Eğer metin "sürdOrdÖğü" gibi bozuksa, bu kelimeler bulunamaz.
-                turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite ", " olan ", " veya "]
-                
-                # Metnin içinde bu kelimelerden HİÇBİRİ yoksa, encoding bozuktur.
+                turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite "]
                 match_count = sum(1 for word in turkish_anchors if word in text)
-                
                 if match_count == 0:
-                    return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası (Türkçe kelimeler bulunamadı)"
-
-        # Her şey temizse, normal hızlı mod yeterlidir.
+                    return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası"
+                    
         return False, "Düz Metin"
-        
     except Exception as e:
-        print(f"Analiz hatası: {e}")
-        return True, "Dosya Analiz Edilemedi (Güvenli Mod)" # Hata varsa risk alma, Vision aç
+        print(f"Analiz Hatası: {e}")
+        return True, "Analiz Edilemedi (Güvenli Mod)"
 
-# --- 3. VISION OKUMA (GEMINI 2.5 FLASH) ---
+# --- 3. VISION OKUMA (HATA GÖSTEREN VERSİYON) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    # 🔥 SENİN İSTEDİĞİN MODEL: gemini-2.5-flash
+    target_model = 'gemini-2.5-flash'
     
     extracted_text = ""
     doc = fitz.open(file_path)
     total_pages = len(doc)
     
     for page_num, page in enumerate(doc):
-        # Kullanıcıya bilgi ver (Uzun sürerse panik yapmasın)
+        # İlerleme durumunu göster
         if page_num == 0:
-            st.toast(f"👁️ Yapay Zeka Gözü Devrede... (Sayfa 1/{total_pages})", icon="⏳")
+            st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
             
-        # Zoom=2 ile yüksek kalite resim al
+        # Resmi hazırla (Zoom=2)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
+            model = genai.GenerativeModel(target_model)
+            
             response = model.generate_content([
                 """
-                GÖREV: Bu görseldeki belgeyi analiz et ve metne dönüştür.
-                KURALLAR:
-                1. Bu belgede TABLOLAR veya BOZUK KARAKTERLER var.
-                2. Tablo yapısını Markdown formatında koruyarak aktar.
-                3. Türkçe karakterleri düzelt (Örn: "sürdOrdÖğü" -> "sürdürdüğü").
-                4. Sadece metni ver.
+                GÖREV: Bu görseldeki belgeyi analiz et.
+                1. Tablo yapısını Markdown olarak koru.
+                2. Türkçe karakterleri düzelt.
+                3. Sadece metni ver.
                 """, 
                 img
             ])
-            extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
+            
+            # Cevap geldi mi kontrol et
+            if response.text:
+                extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
+            else:
+                st.warning(f"⚠️ Sayfa {page_num + 1}: Model boş cevap döndü.")
+                extracted_text += page.get_text() # Yedek
+                
         except Exception as e:
-            print(f"Vision hatası: {e}")
-            extracted_text += page.get_text() # Hata olursa yedeğe dön
+            # 🔥 İŞTE BURASI ÇOK ÖNEMLİ: HATAYI GİZLEME, BAS!
+            error_msg = str(e)
+            st.error(f"❌ GEMINI 2.5 HATASI (Sayfa {page_num + 1}): {error_msg}")
+            
+            # Hata '404' veya 'Not Found' içeriyorsa model isminde sorun vardır.
+            # Hata '429' ise kota dolmuştur.
+            
+            # Yedek plana geç (PyMuPDF) ki sistem çökmesin
+            extracted_text += page.get_text()
             
     return extracted_text
 
@@ -109,71 +104,69 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     try:
         supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
     except Exception as e:
-        st.error(f"Supabase bağlantı hatası: {e}")
+        st.error(f"Supabase hatası: {e}")
         return None
     
     all_documents = []
     
-    if not os.path.exists("temp_pdfs"):
-        os.makedirs("temp_pdfs")
+    if not os.path.exists("temp_pdfs"): os.makedirs("temp_pdfs")
         
     for uploaded_file in uploaded_files:
         try:
-            # --- A. STORAGE YÜKLEME ---
-            try:
-                uploaded_file.seek(0)
-                file_bytes = uploaded_file.read()
-                supabase.storage.from_("belgeler").upload(
-                    path=uploaded_file.name,
-                    file=file_bytes,
-                    file_options={"content-type": "application/pdf", "upsert": "true"}
-                )
-            except: pass 
-
-            # --- B. GEÇİCİ DOSYA ---
+            # 1. Kaydet
             uploaded_file.seek(0)
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            # --- C. KARAR ANI: İÇERİK ANALİZİ 🧠 ---
-            # Dosya adına BAKMA, İçeriği TARA.
+            # 2. Storage (Opsiyonel)
+            try:
+                uploaded_file.seek(0)
+                file_bytes = uploaded_file.read()
+                supabase.storage.from_("belgeler").upload(
+                    path=uploaded_file.name, file=file_bytes,
+                    file_options={"content-type": "application/pdf", "upsert": "true"}
+                )
+            except: pass
+
+            # --- KARAR ANI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # Vision Kullanılsın mı? (Kullanıcı istediyse VEYA İçerik karışık ise)
-            should_use_vision = use_vision_mode or is_complex
+            # Eğer "tezyayin" ise ve "gemini-2.5" testi yapıyorsak Vision'ı zorla aç
+            force_vision = "tezyayin" in uploaded_file.name.lower()
+            should_use_vision = use_vision_mode or is_complex or force_vision
             
             full_text = ""
             
             if should_use_vision:
-                st.toast(f"🤖 Vision Modu: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
+                st.toast(f"Mod: Vision (Gemini 2.5) | Dosya: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
                 full_text = pdf_image_to_text_with_gemini(file_path)
+                
+                # İçerik Kontrolü
+                if len(full_text) < 100:
+                    st.error(f"⚠️ UYARI: {uploaded_file.name} tarandı ama içerik çok kısa! (Hata oluşmuş olabilir)")
             else:
-                # Normal Hızlı Okuma
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # --- D. BELGE OLUŞTURMA ---
-            header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız Belge"
-            
+            # --- BELGE OLUŞTURMA ---
+            header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
                 metadata={"source": uploaded_file.name}
             )
             
-            # --- E. PARÇALAMA ---
+            # Parçalama (Chunking)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,      
-                chunk_overlap=300,
+                chunk_size=1500, chunk_overlap=300,
                 separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
             )
-            
             split_docs = text_splitter.split_documents([unified_doc])
             all_documents.extend(split_docs)
             
             if os.path.exists(file_path): os.remove(file_path)
             
-            # Supabase Güncelleme
+            # DB Güncelleme
             try:
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
@@ -182,7 +175,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         except Exception as e:
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
-    # --- 5. PINECONE ---
+    # --- PINECONE ---
     if all_documents:
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -197,7 +190,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- SİLME VE BAĞLANTI (Standart) ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
@@ -211,8 +204,7 @@ def delete_document_cloud(file_name):
             supabase.storage.from_("belgeler").remove([file_name])
         except Exception as e: print(f"Supabase silme hatası: {e}")
         return True, f"{file_name} başarıyla silindi."
-    except Exception as e:
-        return False, f"Hata: {str(e)}"
+    except Exception as e: return False, f"Hata: {str(e)}"
 
 def connect_to_existing_index():
     try:
