@@ -18,19 +18,13 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. GELİŞMİŞ DEDEKTİF (GENEL AMAÇLI VE ALAN TANIMLI) 🕵️‍♂️ ---
+# --- 2. AKILLI DEDEKTİF (AYNI KALIYOR) ---
 def analyze_pdf_complexity(file_path):
-    """
-    Belgenin "Basit Metin" mi yoksa "Karmaşık Yapı/Tablo" mu olduğunu analiz eder.
-    Dosya ismine bakmaz. İçerikteki yapısal ve terminolojik ipuçlarını kullanır.
-    """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
-        # Analiz için ilk 3 sayfa yeterlidir (Genelde kapak ve içindekiler sonrası yapı belli olur)
         pages_to_check = min(len(doc), 3)
-        
         complexity_score = 0
         reasons = []
 
@@ -38,58 +32,38 @@ def analyze_pdf_complexity(file_path):
             page = doc[i]
             text = page.get_text().lower()
             
-            # --- GRUP 1: AKADEMİK VE TEKNİK TABLO GÖSTERGELERİ (Yüksek Puan) ---
-            # Bu terimler, belgenin yoğun veri içeren bir akademik tablo olduğunu gösterir.
-            # Sadece Uludağ Üni değil, ODTÜ, İTÜ veya YÖK belgelerinde de ortaktır.
-            academic_indicators = [
-                "ssci", "sci-exp", "ahci", "scopus", "ulakbim", "tr dizin",  # İndeksler
-                "doi", "isbn", "issn",  # Tanımlayıcılar
-                "q1", "q2", "q3", "q4", "quartile", "çeyreklik",  # Sınıflandırma
-                "puan", "ats", "akts", "kredi"  # Sayısal Değerler
+            # PARMAK İZİ KELİMELER
+            high_priority_keywords = [
+                "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
+                "doi", "yöksis", "quartile", "çeyreklik", "impact factor"
             ]
             
-            hit_academic = sum(1 for kw in academic_indicators if kw in text)
+            hit_academic = sum(1 for kw in high_priority_keywords if kw in text)
             if hit_academic > 0:
-                complexity_score += 2
-                reasons.append("Akademik/Teknik Terim Yoğunluğu")
+                return True, f"Akademik Tablo Terimleri Bulundu (Q1/DOI vb.)"
 
-            # --- GRUP 2: YAPISAL GÖSTERGELER (Orta Puan) ---
-            # Herhangi bir yönetmelik veya yönergede tablo yapısını işaret eder.
-            structural_indicators = [
-                "tablo", "çizelge", "şekil", "grafik", "ek-1", "ek-2", 
-                "sütun", "satır", "kriter", "koşul", "şartlar", "kategoriler"
-            ]
-            
-            hit_structural = sum(1 for kw in structural_indicators if kw in text)
-            if hit_structural > 0:
-                complexity_score += 1
-                reasons.append("Yapısal Anahtar Kelimeler")
+            # YAPISAL KELİMELER
+            medium_priority_keywords = ["tablo", "kriter", "koşul", "şart", "sütun", "satır"]
+            hit_structural = sum(1 for kw in medium_priority_keywords if kw in text)
+            if hit_structural > 0: complexity_score += 1
 
-            # --- GRUP 3: GEOMETRİK ANALİZ (Vektör Çizimleri) ---
-            # Tablo kenarlıkları, kutucuklar vb.
+            # ÇİZGİLER
             drawings = page.get_drawings()
-            if len(drawings) > 10: 
-                complexity_score += 2
-                reasons.append(f"Vektör/Tablo Çizimi ({len(drawings)} adet)")
+            if len(drawings) > 10: complexity_score += 2
 
-            # --- GRUP 4: BOZUK METİN KONTROLÜ (Encoding) ---
+            # BOZUK METİN
             turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu "]
             if len(text) > 50 and sum(1 for w in turkish_anchors if w in text) == 0:
-                return True, "OCR/Encoding Hatası (Metin Okunamadı)"
+                return True, "Bozuk Metin / Encoding Hatası"
 
-        # KARAR MEKANİZMASI:
-        # Toplam skor 3'ü geçerse Vision Modu devreye girer.
         if complexity_score >= 3:
-            unique_reasons = list(set(reasons))
-            return True, f"Karmaşık Yapı Tespit Edildi (Skor: {complexity_score}). Sebepler: {', '.join(unique_reasons)}"
+            return True, f"Karmaşık Yapı (Skor: {complexity_score})"
             
-        return False, "Standart Metin Yapısı"
-        
+        return False, "Standart Metin"
     except Exception as e:
-        print(f"Analiz Hatası: {e}")
-        return True, "Güvenli Mod (Analiz Hatası)"
+        return True, "Güvenli Mod"
 
-# --- 3. VISION OKUMA (AKILLI HİBRİT MOD) ---
+# --- 3. VISION OKUMA (HİYERARŞİ ODAKLI YENİ PROMPT 🔥) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -97,7 +71,7 @@ def pdf_image_to_text_with_gemini(file_path):
     doc = fitz.open(file_path)
     total_pages = len(doc)
     
-    # Filtreleri kapatıyoruz ki resmi belgeleri engellemesin.
+    # FİLTRELERİ KAPAT
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -106,40 +80,42 @@ def pdf_image_to_text_with_gemini(file_path):
     ]
 
     for page_num, page in enumerate(doc):
-        # Kullanıcıya bilgi ver
         if page_num == 0:
-            st.toast(f"🚀 {target_model} ile Derinlemesine Analiz... Sayfa 1/{total_pages}", icon="🧠")
+            st.toast(f"🚀 {target_model} ile Hiyerarşik Tarama... (Sayfa 1/{total_pages})", icon="🧠")
             
-        # Resmi yüksek çözünürlükte al (Zoom=2)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
-            # Resmi byte formatına çevir (Hata önleyici)
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='JPEG')
             image_bytes = img_byte_arr.getvalue()
 
             model = genai.GenerativeModel(target_model)
             
-            # HOCANIN SEVECEĞİ DETAYLI PROMPT
+            # 🔥 İŞTE SİHİRLİ PROMPT BURADA 🔥
+            prompt = """
+            GÖREV: Bu akademik belgeyi, özellikle tabloları, VERİTABANI İÇİN HAZIRLA.
+            
+            ÇOK ÖNEMLİ KURALLAR (Bunu uygulamazsan veri kaybolur):
+            
+            1. **HER SATIRA BAŞLIK EKLE:** Tablonun en başındaki ana başlığı (Örn: "DOKTORA" veya "YÜKSEK LİSANS") al ve tablonun içindeki HER BİR MADDENİN başına yaz.
+               - Yanlış: "Q1 yayın gerekir."
+               - Doğru: "DOKTORA MEZUNİYET ŞARTI: Q1 yayın gerekir."
+               
+            2. **"VEYA" MANTIĞINI AÇIKLA:** Eğer bir maddede "yayınlanmış VEYA DOI alınmış" diyorsa, bunu açıkça belirt:
+               - "Makalenin basılmış olması ŞART DEĞİLDİR, sadece DOI numarası alınmış (yayına kabul edilmiş) olması da YETERLİDİR." şeklinde yorum ekle.
+            
+            3. **SANAT DALLARINI AYRIŞTIR:** Eğer "Resim", "Müzik" gibi alt dallar varsa, bunları mutlaka üst başlıkla birleştir:
+               - "DOKTORA - SANATTA YETERLİK - RESİM ANASANAT DALI için sergi şartı şudur..."
+               
+            4. **DİPNOTLARI İLİŞKİLENDİR:** Tablo altındaki yıldızlı (*) notları ilgili maddenin altına ekle.
+            
+            5. Çıktıyı düzgün Türkçe cümleler ve Markdown maddeleri olarak ver.
+            """
+            
             response = model.generate_content(
-                [
-                    """
-                    GÖREV: Bu akademik belgeyi analiz et ve yapılandırılmış veriye dönüştür.
-                    
-                    ADIMLAR:
-                    1. **DİPNOT ANALİZİ:** Tabloların altında veya sayfa sonlarındaki küçük puntolu açıklamaları (örneğin (*) işaretli notlar) tespit et. Bu notlar genellikle yetki ve istisnaları belirtir, bunları ana metinle ilişkilendir.
-                    
-                    2. **SEMANTİK DÖNÜŞÜM:** Tablolardaki verileri sadece kopyalama; her satırı anlamlı bir cümleye dönüştür. 
-                       Örn: "| Doktora | Q1 |" satırını -> "Doktora programı için Q1 yayın şartı aranır." şeklinde yaz.
-                    
-                    3. **FORMAT:** Tablo yapısını Markdown olarak koru ancak yukarıdaki açıklamaları da ekle.
-                    
-                    4. **DÜZELTME:** Türkçe karakter hatalarını onar.
-                    """, 
-                    {"mime_type": "image/jpeg", "data": image_bytes}
-                ],
+                [prompt, {"mime_type": "image/jpeg", "data": image_bytes}],
                 safety_settings=safety_settings
             )
             
@@ -149,7 +125,6 @@ def pdf_image_to_text_with_gemini(file_path):
                 extracted_text += page.get_text()
                 
         except Exception as e:
-            # Hata durumunda sessizce standart metoda dön
             extracted_text += page.get_text()
             
     return extracted_text
@@ -168,12 +143,11 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         
     for uploaded_file in uploaded_files:
         try:
-            # 1. Dosyayı Geçici Olarak Kaydet
             uploaded_file.seek(0)
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            # 2. Supabase Storage'a Yedekle
+            # Storage
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -183,61 +157,52 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 )
             except: pass
 
-            # --- KARAR MEKANİZMASI (HİLE YOK, SAF ANALİZ) ---
-            # Dosya adını kontrol eden kod bloğu KALDIRILDI.
-            # Artık sadece matematiksel ve dilbilimsel analiz yapılıyor.
-            
+            # --- DEDEKTİF ---
             is_complex, reason = analyze_pdf_complexity(file_path)
-            
-            # Vision kullanıp kullanmayacağımıza karar veriyoruz.
             should_use_vision = use_vision_mode or is_complex
             
             full_text = ""
             if should_use_vision:
-                st.toast(f"Mod: Vision (Akıllı Tarama) | Dosya: {uploaded_file.name}\nTespit: {reason}", icon="👁️")
+                st.toast(f"Mod: Vision | Dosya: {uploaded_file.name}\nTespit: {reason}", icon="👁️")
                 full_text = pdf_image_to_text_with_gemini(file_path)
             else:
-                # Basit dosyalarda hızlı okuma
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Güvenlik Kontrolü: Eğer Vision boş dönerse (API hatası vb.) yedeğe geç
             if not full_text.strip():
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
 
-            # 3. Belge Nesnesi Oluşturma
+            # Belge oluşturma
             header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
                 metadata={"source": uploaded_file.name}
             )
             
-            # 4. Parçalama (Chunking)
+            # CHUNK SIZE ARTTIRMA (Bağlam kopmaması için)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1200, 
-                chunk_overlap=250,
-                separators=["\n|", "\nMADDE", "\n###", "\n\n", "\n", ". ", " "]
+                chunk_size=1500,  # 1200'den 1500'e çıkardık, bütünlük bozulmasın.
+                chunk_overlap=300,
+                separators=["\n|", "\n###", "\n\n", ". "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # 5. Boyut Kontrolü (Pinecone Limit Aşımını Önleme)
+            # Boyut Kontrolü
             safe_docs = []
             for doc in split_docs:
                 text_size = len(doc.page_content.encode('utf-8'))
-                if text_size < 35000:
+                if text_size < 38000: # Pinecone limiti 40k, güvenli sınır 38k
                     safe_docs.append(doc)
                 else:
-                    # Çok büyük parçayı güvenli sınıra çek
-                    doc.page_content = doc.page_content[:15000] + "\n...(Sistem limiti nedeniyle kısaltıldı)"
+                    doc.page_content = doc.page_content[:15000] + "\n...(Kısaltıldı)"
                     safe_docs.append(doc)
             
             all_documents.extend(safe_docs)
             
-            # Temizlik
             if os.path.exists(file_path): os.remove(file_path)
             
-            # DB Kaydı
+            # DB Temizliği
             try:
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
@@ -246,7 +211,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         except Exception as e:
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
-    # 6. Vektör Veritabanına Yazma
+    # Vector Store
     if all_documents:
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -261,7 +226,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER STANDART FONKSİYONLAR (DEĞİŞİKLİK YOK) ---
+# Diğerleri aynı...
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
