@@ -18,58 +18,65 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. SAF KELİME ODAKLI DEDEKTİF (YANILMA PAYI SIFIR) 🕵️‍♂️ ---
+# --- 2. GARANTİCİ DEDEKTİF 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    Çizimlere, kutulara, çerçevelere BAKMAZ.
-    Sadece 'Q1', 'SSCI' gibi ayırt edici akademik terimleri arar.
+    1. Akademik kelime arar.
+    2. Metin okunabiliyor mu diye bakar. Okunmuyorsa Vision açar.
     """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
-        # İlk 3 sayfaya bakmak yeterli
         pages_to_check = min(len(doc), 3)
-        
+        total_text_len = 0
+        all_text = ""
+
         for i in range(pages_to_check):
             page = doc[i]
             text = page.get_text().lower()
+            total_text_len += len(text)
+            all_text += text
             
-            # --- PARMAK İZİ LİSTESİ ---
-            # Bu kelimeler 'Lisans Yönetmeliği'nde GEÇMEZ.
-            # Sadece 'Tez Yayın Şartı' gibi tablolarda geçer.
-            unique_triggers = [
-                "q1", "q2", "q3",          # Çeyreklikler
-                "ssci", "sci-exp", "ahci", # İndeksler
-                "scopus", "yöksis",        # Veritabanları
-                "doi numarası",            # DOI
-                "impact factor",           # Etki faktörü
-                "quartile",                # İngilizce terim
-                "doktora yayın şartı",     # Özel ifade
-                "yüksek lisans yayın şartı"
+            # --- KURAL 1: PARMAK İZİ KELİMELER ---
+            academic_keywords = [
+                "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
+                "yöksis", "doi", "çeyreklik", "quartile", "impact factor",
+                "doktora", "yüksek lisans", "yayın şartı", "akts", "kredi"
             ]
             
-            # Eşleşme var mı?
-            found = [kw for kw in unique_triggers if kw in text]
-            
+            found = [kw for kw in academic_keywords if kw in text]
             if found:
-                # Tek bir tane bile bulsa yeter. Şüpheye yer yok.
-                return True, f"Akademik Terim Yakalandı: '{found[0]}'"
-            
-        return False, "Standart Metin (Tetikleyici Kelime Yok)"
+                return True, f"Kritik Kelime Bulundu: '{found[0]}'"
+
+        # --- KURAL 2: METİN YOKSA VEYA AZSA (TARANMIŞ PDF) ---
+        # 3 sayfada toplam 200 karakterden az yazı varsa, bu dosya resimdir.
+        if total_text_len < 200:
+            return True, "Metin Okunamadı (Resim PDF)"
+
+        # --- KURAL 3: BOZUK KARAKTER KONTROLÜ ---
+        # Metin var ama 've', 'bir', 'ile' gibi kelimeler yoksa encoding bozuktur.
+        turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " veya "]
+        hits = sum(1 for w in turkish_anchors if w in all_text)
+        
+        # Eğer yeterince yazı var ama hiç bağlaç yoksa, karakterler bozuktur.
+        if total_text_len > 500 and hits == 0:
+            return True, "Bozuk Metin (OCR Gerekli)"
+
+        return False, "Standart Metin"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
-        return False, "Hata Sonrası Standart Mod"
+        return True, "Güvenli Mod (Hata)"
 
-# --- 3. VISION OKUMA (SESSİZ HATA YÖNETİMİ) ---
+# --- 3. VISION OKUMA (HİYERARŞİ VE HATA KORUMALI) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
     extracted_text = ""
     doc = fitz.open(file_path)
     
-    st.toast(f"👁️ VISION MODU AÇILDI: {os.path.basename(file_path)}", icon="📸")
+    st.toast(f"👁️ Vision Aktif: {os.path.basename(file_path)}", icon="📸")
     
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -89,13 +96,12 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
-            # Hiyerarşik Prompt
+            # PROMPT
             prompt = """
-            GÖREV: Bu akademik belgeyi analiz et.
-            1. TABLO VARSA: Her satırın başına ana başlığı (DOKTORA / YÜKSEK LİSANS) ekle.
-            2. "VEYA" bağlaçlarını açıkla.
-            3. Dipnotları birleştir.
-            4. Markdown tablosu olarak ver.
+            GÖREV: Bu belgeyi analiz et.
+            1. Tablodaki her satıra "DOKTORA" veya "YÜKSEK LİSANS" başlığını ekle.
+            2. Dipnotları ilgili maddeyle birleştir.
+            3. Markdown tablosu olarak ver.
             """
             
             response = model.generate_content(
@@ -103,14 +109,12 @@ def pdf_image_to_text_with_gemini(file_path):
                 safety_settings=safety_settings
             )
             
-            # Sessiz Hata Yönetimi
             try:
                 if hasattr(response, 'text') and response.text:
                     extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
                 else:
                     raise ValueError("Boş Cevap")
             except Exception:
-                # Kırmızı hata yok, sessizce logla ve yedeğe geç
                 print(f"Sayfa {page_num+1} Vision okuyamadı, standart moda geçildi.")
                 extracted_text += page.get_text()
 
@@ -141,7 +145,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # EKRAN BİLDİRİMLERİ (Doğrulamak için)
             if is_complex:
                 st.warning(f"🟠 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
@@ -153,11 +156,10 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             if should_use_vision:
                 full_text = pdf_image_to_text_with_gemini(file_path)
             else:
-                # Standart mod (Çok hızlıdır)
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Güvenlik Ağı: Eğer metin boşsa tekrar standart oku
+            # Güvenlik Ağı
             if not full_text.strip():
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
@@ -188,7 +190,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             
             if os.path.exists(file_path): os.remove(file_path)
             
-            # DB İşlemleri
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -217,7 +218,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞERLERİ AYNI ---
+# --- DİĞER FONKSİYONLAR AYNI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
