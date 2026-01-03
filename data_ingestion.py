@@ -9,7 +9,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.schema import Document
 from supabase import create_client
 from pinecone import Pinecone
-import io # 🔥 EKLENDİ: Hafızada resim işlemi için gerekli
+import io  # 🔥 EKLENDİ: Resim hatasını çözmek için şart!
 
 # --- 1. GEMINI AYARLARI ---
 def configure_gemini():
@@ -47,11 +47,11 @@ def analyze_pdf_complexity(file_path):
         print(f"Analiz Hatası: {e}")
         return True, "Analiz Edilemedi (Güvenli Mod)"
 
-# --- 3. VISION OKUMA (LIBRARY BUG FIX SÜRÜMÜ) ---
+# --- 3. VISION OKUMA (HATA ÇÖZÜCÜ VERSİYON) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     
-    # 🔥 SENİN İSTEDİĞİN MODEL
+    # 🔥 SENİN MODELİN
     target_model = 'gemini-2.5-flash'
     
     extracted_text = ""
@@ -62,13 +62,13 @@ def pdf_image_to_text_with_gemini(file_path):
         if page_num == 0:
             st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
             
-        # Resmi al (Zoom=2)
+        # Resmi al (Zoom=2 netlik için)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
-            # 🔥 KRİTİK DÜZELTME: PIL Objesi yerine RAW BYTES gönderiyoruz.
-            # Bu işlem 'PngImagePlugin' hatasını atlatır.
+            # 🔥 DÜZELTME BURADA: PIL Objesi yerine BYTE gönderiyoruz.
+            # Bu işlem 'PngImagePlugin' hatasını %100 çözer.
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='JPEG')
             image_bytes = img_byte_arr.getvalue()
@@ -78,7 +78,7 @@ def pdf_image_to_text_with_gemini(file_path):
             response = model.generate_content([
                 """
                 GÖREV: Bu görseldeki belgeyi analiz et.
-                1. Tablo yapısını Markdown olarak koru.
+                1. Tablo yapısını Markdown formatında koru.
                 2. Türkçe karakterleri düzelt.
                 3. Sadece metni ver, yorum yapma.
                 """, 
@@ -94,7 +94,6 @@ def pdf_image_to_text_with_gemini(file_path):
         except Exception as e:
             error_msg = str(e)
             st.error(f"❌ GEMINI 2.5 HATASI (Sayfa {page_num + 1}): {error_msg}")
-            # Hata durumunda yedeğe geç
             extracted_text += page.get_text()
             
     return extracted_text
