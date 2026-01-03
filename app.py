@@ -6,8 +6,6 @@ import pandas as pd
 import os
 import asyncio 
 from supabase import create_client
-from data_ingestion import delete_document_cloud
-from data_ingestion import process_pdfs, delete_document_cloud, connect_to_existing_index
 
 # --- KRİTİK HATA DÜZELTİCİ ---
 try:
@@ -22,13 +20,13 @@ st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", lay
 try:
     from langchain_pinecone import PineconeVectorStore
     from langchain_community.embeddings import HuggingFaceEmbeddings
-    from data_ingestion import process_pdfs 
+    from data_ingestion import process_pdfs, delete_document_cloud, connect_to_existing_index
     from generation import generate_answer 
 except ImportError as e:
     st.error(f"⚠️ Kritik Başlatma Hatası: {e}")
     st.stop()
 
-# --- CSS TASARIMI ---
+# --- CSS TASARIMI (GÜNCELLENDİ: VIEW BUTONU EKLENDİ) ---
 st.markdown("""
     <style>
     .stApp { background-color: #0f172a; color: #f8fafc; }
@@ -38,6 +36,23 @@ st.markdown("""
     .stButton > button:hover { background-color: #2563eb; transform: translateY(-2px); box-shadow: 0 6px 8px rgba(0,0,0,0.2); }
     .file-item { background-color: #334155; padding: 8px; border-radius: 5px; margin-bottom: 5px; font-size: 0.9em; border-left: 3px solid #10b981; }
     .source-item { display: block; background-color: #334155; color: #e2e8f0; padding: 10px 15px; border-radius: 8px; font-size: 0.95em; margin-bottom: 8px; border-left: 5px solid #60a5fa; }
+    
+    /* Görüntüle Butonu İçin Özel Stil */
+    .view-btn {
+        display: inline-block;
+        width: 100%;
+        text-align: center;
+        background-color: #10b981;
+        color: white !important;
+        padding: 6px 10px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-top: 2px;
+        transition: all 0.2s;
+    }
+    .view-btn:hover { background-color: #059669; transform: translateY(-1px); }
     </style>
     """, unsafe_allow_html=True)
 
@@ -60,7 +75,7 @@ def daktilo_efekti(metin):
         time.sleep(0.003)
     alan.markdown(gecici)
 
-# --- YENİ LOGLAMA SİSTEMİ (BULUTA KAYIT) ---
+# --- LOGLAMA SİSTEMİ ---
 def log_kaydet(kullanici, soru, cevap):
     try:
         supabase.table("sorgu_loglari").insert({
@@ -71,22 +86,25 @@ def log_kaydet(kullanici, soru, cevap):
     except Exception as e:
         print(f"Log Hatası: {e}")
 
-# --- YENİ ANALİZ SİSTEMİ (BULUTTAN OKUMA) ---
+# --- ANALİZ SİSTEMİ ---
 def admin_analiz_getir():
     try:
-        # Tüm logları çek
         response = supabase.table("sorgu_loglari").select("*").execute()
         df = pd.DataFrame(response.data)
         return df
     except:
         return pd.DataFrame()
 
-# --- BULUT BAĞLANTISI ---
+# --- BULUT BAĞLANTISI (CPU FIX EKLENDİ) ---
 @st.cache_resource
 def get_cloud_db():
     try:
         os.environ['PINECONE_API_KEY'] = st.secrets["PINECONE_API_KEY"]
-        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        # Cloud hatasını önlemek için CPU zorlaması
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={'device': 'cpu'}
+        )
         index_name = "mevzuat-asistani"
         vector_store = PineconeVectorStore.from_existing_index(index_name=index_name, embedding=embedding_model)
         return vector_store
@@ -103,13 +121,9 @@ if "username" not in st.session_state: st.session_state.username = ""
 if "role" not in st.session_state: st.session_state.role = ""
 if "analiz_acik" not in st.session_state: st.session_state.analiz_acik = False
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
+if "vector_store" not in st.session_state: st.session_state.vector_store = None
 
-# TEK VE ORTAK DEĞİŞKENİMİZ: "vector_store"
-if "vector_store" not in st.session_state:
-    st.session_state.vector_store = None
-
-# --- OTOMATİK BAĞLANTI (SİHİRLİ DOKUNUŞ) ---
-# Eğer hafıza boşsa, Pinecone'a bağlanmaya çalış
+# --- OTOMATİK BAĞLANTI ---
 if st.session_state.vector_store is None:
     with st.spinner("Veritabanına bağlanılıyor..."):
         try:
@@ -118,12 +132,10 @@ if st.session_state.vector_store is None:
             if st.session_state.vector_store:
                 st.toast("✅ Veritabanı Bağlantısı Başarılı!", icon="🚀")
             else:
-                # Bağlantı fonksiyonu None döndürdüyse hata var demektir
-                st.error("⚠️ Veritabanına bağlanılamadı. API Key veya İnternet sorunu olabilir.")
+                # Yedek bağlantı
+                st.session_state.vector_store = get_cloud_db()
         except Exception as e:
             st.error(f"🚨 Bağlantı Hatası: {e}")
-
-# (Uyarı mesajını kaldırıldı çünkü yukarıdaki error zaten durumu anlatacak)
 
 # --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
@@ -159,25 +171,21 @@ if not st.session_state.logged_in:
                         except: st.error("Kullanıcı adı alınmış.")
     st.stop()
 
-# Gerekli import (Dosyanın en başına eklemelisin)
-from data_ingestion import process_pdfs, delete_document_cloud
-
 # --- SIDEBAR BAŞLANGICI ---
 with st.sidebar:
-    # 1. KULLANICI KARTI
     rol_txt = "YÖNETİCİ" if st.session_state.role == "admin" else "ÖĞRENCİ"
     st.markdown(f"""<div class="user-card"><h2 style='margin:0;'>{st.session_state.username.upper()}</h2><p style='margin:0; opacity:0.9; font-size:0.9rem;'>{rol_txt} HESABI</p></div>""", unsafe_allow_html=True)
 
     # ========================================================
-    #  YÖNETİCİ PANELİ (Sadece Admin Görür)
+    #  YÖNETİCİ PANELİ
     # ========================================================
     if st.session_state.role == 'admin':
         if st.button("📊 Analiz Paneli"): st.session_state.analiz_acik = not st.session_state.analiz_acik
         
-        # --- GELİŞMİŞ ANALİZ ---
+        # Analiz
         if st.session_state.analiz_acik:
             st.markdown('<div class="stats-box">', unsafe_allow_html=True)
-            df_log = admin_analiz_getir() # Bu fonksiyonun tanımlı olduğunu varsayıyoruz
+            df_log = admin_analiz_getir()
             
             if not df_log.empty:
                 toplam_soru = len(df_log)
@@ -194,41 +202,44 @@ with st.sidebar:
         
         st.divider()
         
-        # --- DOSYA YÖNETİMİ ---
+        # Dosya Yönetimi
         st.subheader("📁 Veri Yönetimi")
         
-        # 1. Dosya Yükleme
         uploaded_files = st.file_uploader("PDF Yükle", accept_multiple_files=True, type=['pdf'])
         
-        # İSİM GÜNCELLENDİ: "Veritabanına Belge Ekle"
         if st.button("Veritabanına Belge Ekle", type="primary"):
             if uploaded_files:
                 durum = st.status("Sistem güncelleniyor...", expanded=True)
-                # Cloud işlem fonksiyonun
                 st.session_state.vector_db = process_pdfs(uploaded_files)
                 durum.update(label="✅ Belgeler Eklendi!", state="complete")
                 st.rerun()
         
-        # 2. Yüklü Dosyaları Listeleme ve Silme (Supabase'den Çeker)
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("📚 SİSTEMDEKİ BELGELER (YÖNET)")
         
+        # --- ADMİN İÇİN DOSYA LİSTESİ (GÖRÜNTÜLEME + SİLME) ---
         try:
-            # Supabase'den dosya listesini çek
             docs = supabase.table("dokumanlar").select("*").execute()
             
             if docs.data:
                 for d in docs.data:
                     dosya_adi = d["dosya_adi"]
                     
-                    # Yan yana düzen: Dosya Adı | Sil Butonu
-                    col1, col2 = st.columns([0.85, 0.15])
+                    # Public Link Al
+                    try:
+                        public_url = supabase.storage.from_("belgeler").get_public_url(dosya_adi)
+                    except: public_url = "#"
+
+                    # 3 Sütun: İsim | Aç | Sil
+                    c1, c2, c3 = st.columns([0.65, 0.20, 0.15])
                     
-                    with col1:
-                        st.markdown(f'<div style="font-size:0.9em; padding-top:5px;">📄 {dosya_adi}</div>', unsafe_allow_html=True)
+                    with c1: 
+                        st.markdown(f'<div style="font-size:0.85em; padding-top:8px;">📄 {dosya_adi}</div>', unsafe_allow_html=True)
                     
-                    with col2:
-                        # Çöp Kutusu Butonu
+                    with c2: 
+                        st.markdown(f'<a href="{public_url}" target="_blank" class="view-btn">👁️ Aç</a>', unsafe_allow_html=True)
+                    
+                    with c3:
                         if st.button("🗑️", key=f"del_btn_{dosya_adi}", help="Belgeyi Sil"):
                             st.session_state.delete_target = dosya_adi
                             st.rerun()
@@ -238,10 +249,9 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Liste alınamadı: {e}")
 
-        # --- SİLME ONAY KUTUSU (Confirmation) ---
+        # Silme Onayı
         if "delete_target" in st.session_state and st.session_state.delete_target:
             target_file = st.session_state.delete_target
-            
             with st.container():
                 st.warning(f"⚠️ **{target_file}** silinecek. Emin misiniz?")
                 col_yes, col_no = st.columns(2)
@@ -249,7 +259,6 @@ with st.sidebar:
                 with col_yes:
                     if st.button("✅ EVET, SİL", use_container_width=True):
                         with st.spinner("Siliniyor..."):
-                            # Data_ingestion.py'deki fonksiyonu çağır
                             success, msg = delete_document_cloud(target_file)
                             if success:
                                 st.success(msg)
@@ -266,16 +275,27 @@ with st.sidebar:
         st.divider()
 
     # ========================================================
-    #  ÖĞRENCİ GÖRÜNÜMÜ (Salt Okunur Liste)
+    #  ÖĞRENCİ GÖRÜNÜMÜ (SADECE GÖRÜNTÜLEME)
     # ========================================================
     else:
-        # Öğrenci sadece listeyi görür, butonları görmez
         st.subheader("📚 Mevzuat Listesi")
         try:
             docs = supabase.table("dokumanlar").select("dosya_adi").execute()
             if docs.data:
                 for d in docs.data:
-                    st.markdown(f"🔹 *{d['dosya_adi']}*")
+                    dosya_adi = d["dosya_adi"]
+                    
+                    # Public Link Al
+                    try:
+                        public_url = supabase.storage.from_("belgeler").get_public_url(dosya_adi)
+                    except: public_url = "#"
+
+                    # 2 Sütun: İsim | Aç
+                    c1, c2 = st.columns([0.80, 0.20])
+                    with c1: 
+                        st.markdown(f'<div style="font-size:0.9em; padding-top:8px;">🔹 {dosya_adi}</div>', unsafe_allow_html=True)
+                    with c2:
+                        st.markdown(f'<a href="{public_url}" target="_blank" class="view-btn">👁️ Aç</a>', unsafe_allow_html=True)
             else:
                 st.caption("Yüklü belge yok.")
         except:
@@ -284,13 +304,11 @@ with st.sidebar:
         st.divider()
 
     # ========================================================
-    # ORTAK BUTONLAR (Sohbet İndir, Çıkış vb.)
+    # ORTAK BUTONLAR
     # ========================================================
     st.caption("İşlemler")
     
-    # Sohbet İndirme
     if st.session_state.messages:
-        # get_tr_time fonksiyonun import edildiğini varsayıyoruz
         tr_saat = get_tr_time() 
         log = f"🎓 SOHBET\n{tr_saat.strftime('%d.%m.%Y %H:%M')}\n" + "="*30 + "\n"
         for m in st.session_state.messages: log += f"[{m['role']}]: {m['content']}\n"
@@ -304,7 +322,6 @@ with st.sidebar:
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Çıkış Yap
     if st.button("🚪 Çıkış", type="secondary", use_container_width=True):
         for key in st.session_state.keys():
             del st.session_state[key]
@@ -314,7 +331,6 @@ with st.sidebar:
 st.title("💬 Mevzuat Asistanı")
 for m in st.session_state.messages:
     with st.chat_message(m["role"]):
-        # BURASI DEĞİŞTİ: unsafe_allow_html=True eklendi
         st.markdown(m["content"], unsafe_allow_html=True)
 
 if prompt := st.chat_input("Sorunuzu yazın..."):
@@ -322,46 +338,37 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
     with st.chat_message("user"): st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        # Veritabanı kontrolü
         if "vector_store" not in st.session_state or st.session_state.vector_store is None:
              st.warning("⚠️ Veritabanı bağlantısı yok. Lütfen sayfayı yenileyin.")
         else:
             with st.spinner("Gemini (Cloud) düşünüyor..."):
                 try:
-                    # --- YENİ RETRY (TEKRAR DENEME) MEKANİZMASI BAŞLANGICI ---
+                    # --- RETRY MEKANİZMASI ---
                     sonuc = None
                     max_deneme = 3
                     
                     for deneme in range(max_deneme):
                         try:
-                            # 1. Cevabı üretmeyi dene
                             sonuc = generate_answer(prompt, st.session_state.vector_store, st.session_state.chat_history)
-                            break # Eğer hata almazsak döngüden çık (Başardık!)
-                        
+                            break 
                         except Exception as e:
-                            # 2. Hata analizi yap (Sadece sunucu hatalarında tekrar dene)
                             hata_mesaji = str(e)
                             if "504" in hata_mesaji or "503" in hata_mesaji or "Deadline Exceeded" in hata_mesaji:
-                                if deneme < max_deneme - 1: # Son hakkımız değilse
-                                    time.sleep(2) # 2 saniye nefes al
-                                    continue # Başa dön ve tekrar dene
-                            
-                            # Başka bir hataysa (kod hatası vb.) veya haklar bittiyse hatayı fırlat
+                                if deneme < max_deneme - 1:
+                                    time.sleep(2)
+                                    continue 
                             raise e
                     
-                    # --- RETRY MEKANİZMASI BİTİŞİ (Buradan aşağısı senin eski kodunla aynı) ---
-
                     if sonuc:
                         answer_text = sonuc["answer"]
                         sources = sonuc["sources"]
 
-                        # --- KRİTİK DÜZELTME: OLUMSUZ CEVAPSA KAYNAKLARI GİZLE ---
+                        # Negatif cevap kontrolü
                         negative_keywords = ["bilgi bulunamadı", "bilgi yer almıyor", "bilgim yok", "dokümanlarda bu bilgi yok"]
-                        
                         if any(keyword in answer_text.lower() for keyword in negative_keywords):
-                            sources = [] # Kaynak listesini sıfırla
+                            sources = [] 
 
-                        # Kaynakları HTML Bloğu Olarak Hazırla
+                        # HTML Kaynak Gösterimi
                         sources_html = ""
                         if sources: 
                             sources_html += '<div class="source-container"><div class="source-header">📚 REFERANSLAR</div>'
@@ -369,15 +376,13 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                                 sources_html += f'<div class="source-item"><span class="source-icon">📄</span> {src}</div>'
                             sources_html += '</div>'
                         
-                        # Cevap ve Kaynakları Birleştir
                         final_content = answer_text + sources_html
                         
-                        # Ekrana Bas
                         st.markdown(final_content, unsafe_allow_html=True)
-                        
-                        # Hafızaya Kaydet
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
-                    
+
+                        # LOGLAMA (Artık Eksik Değil)
+                        log_kaydet(st.session_state.username, prompt, answer_text)
+
                 except Exception as e:
-                    # 3 kere denemesine rağmen olmazsa veya başka hata varsa burası çalışır
                     st.error(f"😔 Bir bağlantı sorunu oluştu (Hata: {str(e)}). Lütfen tekrar deneyin.")

@@ -3,8 +3,6 @@ import streamlit as st
 from langchain_pinecone import PineconeVectorStore
 from langchain_community.document_loaders import PyMuPDFLoader 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-# Google Embeddings'i SİLDİK ❌
-# HuggingFace'i EKLEDİK ✅
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from supabase import create_client
 from pinecone import Pinecone
@@ -25,6 +23,29 @@ def process_pdfs(uploaded_files):
         
     for uploaded_file in uploaded_files:
         try:
+            # ---------------------------------------------------------
+            # 1. ADIM: FİZİKSEL DOSYAYI STORAGE'A YÜKLE (EKSİK OLAN KISIM BUYDU)
+            # ---------------------------------------------------------
+            try:
+                # Dosyayı okumadan önce başa saralım (Garanti olsun)
+                uploaded_file.seek(0)
+                file_bytes = uploaded_file.read()
+                
+                # 'belgeler' bucket'ına yükle
+                supabase.storage.from_("belgeler").upload(
+                    path=uploaded_file.name,
+                    file=file_bytes,
+                    file_options={"content-type": "application/pdf", "upsert": "true"}
+                )
+            except Exception as storage_err:
+                print(f"Storage yükleme uyarısı ({uploaded_file.name}): {storage_err}")
+
+            # ---------------------------------------------------------
+            # 2. ADIM: VEKTÖR İŞLEME (MEVCUT KODUNUZ)
+            # ---------------------------------------------------------
+            # Dosyayı tekrar başa sar (Yukarıda read() yaptığımız için imleç sonda kaldı)
+            uploaded_file.seek(0)
+            
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
@@ -33,18 +54,9 @@ def process_pdfs(uploaded_files):
             documents = loader.load()
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1200,      # Biraz büyüttük (Madde bütünlüğü için)
-                chunk_overlap=250,    # Örtüşmeyi artırdık (Bağlam kopmasın)
-                separators=[
-                    "\nMADDE ",       # En öncelikli bölme yeri (Büyük harf)
-                    "\nMadde ",       # İkinci öncelik
-                    "\nGEÇİCİ MADDE", # Geçici maddeler
-                    "\n\n",           # Paragraflar
-                    "\n",             # Satırlar
-                    ". ",             # Cümleler
-                    " ",              # Kelimeler
-                    ""
-                ]
+                chunk_size=1200,      
+                chunk_overlap=250,    
+                separators=["\nMADDE ", "\nMadde ", "\nGEÇİCİ MADDE", "\n\n", "\n", ". ", " ", ""]
             )
             split_docs = text_splitter.split_documents(documents)
             
@@ -56,19 +68,27 @@ def process_pdfs(uploaded_files):
             if os.path.exists(file_path):
                 os.remove(file_path)
             
-            # Kayıt Defteri (Supabase) Güncelleme
+            # ---------------------------------------------------------
+            # 3. ADIM: VERİTABANI TABLOSUNU GÜNCELLE
+            # ---------------------------------------------------------
             try:
+                # Önce tablo kaydını sil (varsa), sonra ekle
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
             except Exception as e:
-                print(f"Supabase kayıt hatası: {e}")
+                print(f"Supabase tablo kayıt hatası: {e}")
             
         except Exception as e:
             st.error(f"{uploaded_file.name} işlenirken hata: {e}")
 
+    # ---------------------------------------------------------
+    # 4. ADIM: PINECONE VEKTÖR YÜKLEME
+    # ---------------------------------------------------------
     if all_documents:
-        # ✅ BURASI ARTIK HUGGINGFACE
-        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={'device': 'cpu'} # CPU zorlaması (Garanti olsun)
+        )
         
         vector_store = PineconeVectorStore.from_documents(
             documents=all_documents,
@@ -79,31 +99,40 @@ def process_pdfs(uploaded_files):
     
     return None
 
-# --- BELGE SİLME ---
+# --- BELGE SİLME (STORAGE DAHİL) ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
         index_name = "mevzuat-asistani"
 
+        # 1. Pinecone'dan sil (Vektörler)
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(index_name)
-
         index.delete(filter={"source": file_name})
         
         try:
             supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+            
+            # 2. Tablodan sil (Liste)
             supabase.table("dokumanlar").delete().eq("dosya_adi", file_name).execute()
-        except:
-            pass
+            
+            # 3. Storage'dan sil (Fiziksel Dosya) - YENİ EKLENDİ ✅
+            supabase.storage.from_("belgeler").remove([file_name])
+            
+        except Exception as e:
+            print(f"Supabase silme hatası: {e}")
 
-        return True, f"{file_name} silindi."
+        return True, f"{file_name} başarıyla silindi."
     except Exception as e:
         return False, f"Hata: {str(e)}"
 
 # --- OTOMATİK BAĞLANTI ---
 def connect_to_existing_index():
     try:
-        embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+        embedding_model = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+            model_kwargs={'device': 'cpu'}
+        )
         
         vector_store = PineconeVectorStore.from_existing_index(
             index_name="mevzuat-asistani",
