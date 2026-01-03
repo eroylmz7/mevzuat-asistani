@@ -18,11 +18,11 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. ÇOK SIKI DEDEKTİF (SADECE AKADEMİK TABLO) 🕵️‍♂️ ---
+# --- 2. KESKİN NİŞANCI DEDEKTİF 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    Sadece 'Q1', 'SSCI' gibi çok spesifik terimler varsa Vision açar.
-    Normal 'Tablo' kelimesi veya çizgiler artık Vision açmaz.
+    Sadece çok özel akademik tablo terimleri varsa Vision açar.
+    Çizgi/Kutu sayısına bakmaz (Çizgisiz tabloları kaçırmamak için).
     """
     try:
         doc = fitz.open(file_path)
@@ -34,21 +34,18 @@ def analyze_pdf_complexity(file_path):
             page = doc[i]
             text = page.get_text().lower()
             
-            # 1. KESİN KANIT LİSTESİ (SADECE BUNLAR VARSA AÇ)
-            # Bu liste 'tezyayinsarti.pdf' dosyasının parmak izidir.
-            # Standart yönetmeliklerde bunlar ASLA bir arada bulunmaz.
+            # PARMAK İZİ LİSTESİ (Çok Spesifik)
+            # YÖKSİS ve DOI çıkarıldı (Standart belgelerde olabiliyor)
             academic_keywords = [
                 "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
-                "yöksis", "doi", "çeyreklik", "quartile"
+                "çeyreklik", "quartile", "impact factor"
             ]
             
-            # Eşleşme kontrolü
+            # Bu kelimelerden biri bile varsa, bu %100 bir akademik yayın tablosudur.
             found = [kw for kw in academic_keywords if kw in text]
             
-            if len(found) > 0:
-                # Sadece kelime yetmez, sayfada biraz da çizim (tablo) olsun ki emin olalım.
-                if len(page.get_drawings()) > 5:
-                     return True, f"Karmaşık Akademik Tablo Tespit Edildi ({found[0]})"
+            if found:
+                return True, f"Akademik Tablo Terimi Bulundu: {found[0]}"
             
         return False, "Standart Metin"
         
@@ -56,16 +53,16 @@ def analyze_pdf_complexity(file_path):
         print(f"Analiz Hatası: {e}")
         return False, "Hata Sonrası Standart Mod"
 
-# --- 3. VISION OKUMA (HATA OLURSA SESSİZCE GEÇ) ---
+# --- 3. VISION OKUMA (SESSİZ HATA YÖNETİMİ 🤫) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
     extracted_text = ""
     doc = fitz.open(file_path)
     
-    st.toast(f"👁️ Vision Devrede: Karmaşık tablo okunuyor...", icon="⚡")
+    # Kullanıcıya bilgi ver (Sadece Vision açılırsa görünür)
+    st.toast(f"👁️ Vision Modu Devrede: Karmaşık tablo taranıyor...", icon="⚡")
     
-    # Tüm filtreleri kapat
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -96,20 +93,22 @@ def pdf_image_to_text_with_gemini(file_path):
                 safety_settings=safety_settings
             )
             
-            # Hata kontrolü (Telif vb. takılırsa yedeğe geç)
+            # 🔥 SESSİZ HATA YÖNETİMİ 🔥
+            # response.text'e erişmeden önce kontrol ediyoruz.
+            # Eğer erişilemezse (Telif/Güvenlik), sessizce yedeğe geçiyoruz.
             try:
-                if response and response.text:
+                if hasattr(response, 'text') and response.text:
                     extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
                 else:
-                    raise ValueError("Boş Cevap")
-            except ValueError:
-                # Sessizce yedeğe geç, kullanıcıya hata basıp süreci durdurma
-                print(f"Sayfa {page_num+1} Vision okuyamadı, standart moda geçildi.")
+                    raise ValueError("Boş veya Engellenmiş Cevap")
+            except Exception:
+                # Kırmızı hata basmak yok! Sessizce logla ve devam et.
+                print(f"⚠️ Sayfa {page_num+1} Vision ile okunamadı (Telif/Güvenlik), standart okuma yapılıyor.")
                 extracted_text += page.get_text()
 
         except Exception as e:
-            # Genel hatada da yedeğe geç
-            print(f"Vision Hatası: {e}")
+            # Genel API hatası olursa da durma, standart oku.
+            print(f"⚠️ Vision API Hatası: {e}")
             extracted_text += page.get_text()
             
     return extracted_text
@@ -135,22 +134,24 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # Sadece is_complex True ise uyarı ver, False ise sessizce geç.
-            if is_complex:
-                st.warning(f"🔍 Vision Modu Açıldı: {uploaded_file.name}\nSebep: {reason}")
-            
-            # use_vision_mode (Checkbox) kapalı gelse bile is_complex açar.
             should_use_vision = use_vision_mode or is_complex
+            
+            # EKRANA BİLGİ VER (DEBUG)
+            # Sadece Vision açıldıysa uyarı verelim ki çalıştığını gör.
+            if should_use_vision:
+                st.warning(f"🔍 Vision Modu Aktif: {uploaded_file.name}\nSebep: {reason}")
+            else:
+                # Standart modda yeşil tik (Kullanıcı rahatlasın)
+                st.success(f"✅ Hızlı Mod: {uploaded_file.name}")
             
             full_text = ""
             if should_use_vision:
                 full_text = pdf_image_to_text_with_gemini(file_path)
             else:
-                # Standart mod (Çok hızlıdır)
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # İkinci Güvenlik Ağı: Eğer metin boşsa yine oku
+            # Güvenlik: Metin boşsa tekrar oku
             if not full_text.strip():
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
@@ -209,7 +210,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- DİĞER FONKSİYONLAR ---
+# ... (delete_document_cloud ve connect_to_existing_index aynen kalacak)
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
