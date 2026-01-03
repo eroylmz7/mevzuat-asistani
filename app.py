@@ -202,43 +202,39 @@ with st.sidebar:
         
         st.divider()
         
-       # Dosya Yönetimi
+      # Dosya Yönetimi
         st.subheader("📁 Veri Yönetimi")
         
-        # --- 1. UPLOADER KEY (Dosya kutusunu temizlemek için sayaç) ---
+        # --- 1. UPLOADER KEY (Kutuyu temizlemek için sayaç) ---
         if "uploader_key" not in st.session_state:
             st.session_state.uploader_key = 0
 
-        # --- 2. DOSYA YÜKLEME (Dynamic Key eklendi) ---
+        # --- 2. DOSYA YÜKLEME (Dynamic Key ile) ---
+        # Key her değiştiğinde bu kutu sıfırlanır.
         uploaded_files = st.file_uploader(
             "PDF Yükle", 
             accept_multiple_files=True, 
             type=['pdf'],
-            key=f"uploader_{st.session_state.uploader_key}" # Bu key değişince kutu sıfırlanır
+            key=f"uploader_{st.session_state.uploader_key}" 
         )
         
-        # --- 3. VISION MODU SEÇENEĞİ (Checkbox) ---
-        ai_vision_mode = st.checkbox(
-            "👁️ Yapay Zeka Gözü ile Oku (Tablolu/Zor belgeler için)",
-            help="İşaretlenirse veya dosya adı şüpheliyse Gemini Vision kullanılır."
-        )
-        
-        # --- 4. İŞLEME BUTONU ---
+        # --- 3. İŞLEME BUTONU (SADE VE OTOMATİK) ---
         if st.button("Veritabanına Belge Ekle", type="primary"):
             if uploaded_files:
                 durum = st.status("Sistem güncelleniyor...", expanded=True)
                 
-                # Fonksiyona Vision tercihini gönderiyoruz
-                st.session_state.vector_db = process_pdfs(uploaded_files, use_vision_mode=ai_vision_mode)
+                # use_vision_mode göndermiyoruz (veya False gönderiyoruz).
+                # Böylece karar tamamen arka plandaki "Dedektif"e kalıyor.
+                st.session_state.vector_db = process_pdfs(uploaded_files)
                 
                 durum.update(label="✅ Belgeler Eklendi!", state="complete")
                 
                 st.toast("İşlem tamamlandı, liste yenileniyor...", icon="🎉")
                 
-                # --- 5. TEMİZLİK VE YENİLEME ---
-                st.session_state.uploader_key += 1 # Sayacı arttır (Kutu temizlenir)
+                # --- 4. TEMİZLİK VE YENİLEME ---
+                st.session_state.uploader_key += 1 # Sayacı arttır (Kutuyu temizler)
                 import time
-                time.sleep(1) # Kullanıcı mesajı görsün diye minik bekleme
+                time.sleep(1) # Kullanıcı toast mesajını görsün
                 st.rerun()    # Sayfayı yenile
             else:
                 st.warning("Lütfen önce bir dosya seçin.")
@@ -246,35 +242,26 @@ with st.sidebar:
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("📚 SİSTEMDEKİ BELGELER (YÖNET)")
         
-        # --- ADMİN İÇİN DOSYA LİSTESİ (BURASI AYNI KALIYOR) ---
+        # --- ADMİN İÇİN DOSYA LİSTESİ (AYNI KALIYOR) ---
         try:
             docs = supabase.table("dokumanlar").select("*").execute()
             
             if docs.data:
                 for d in docs.data:
                     dosya_adi = d["dosya_adi"]
-                    
-                    # Public Link Al
                     try:
                         public_url = supabase.storage.from_("belgeler").get_public_url(dosya_adi)
                     except: public_url = "#"
 
-                    # 3 Sütun: İsim | Aç | Sil
                     c1, c2, c3 = st.columns([0.65, 0.20, 0.15])
-                    
-                    with c1: 
-                        st.markdown(f'<div style="font-size:0.85em; padding-top:8px;">📄 {dosya_adi}</div>', unsafe_allow_html=True)
-                    
-                    with c2: 
-                        st.markdown(f'<a href="{public_url}" target="_blank" class="view-btn">👁️ Aç</a>', unsafe_allow_html=True)
-                    
+                    with c1: st.markdown(f'<div style="font-size:0.85em; padding-top:8px;">📄 {dosya_adi}</div>', unsafe_allow_html=True)
+                    with c2: st.markdown(f'<a href="{public_url}" target="_blank" class="view-btn">👁️ Aç</a>', unsafe_allow_html=True)
                     with c3:
                         if st.button("🗑️", key=f"del_btn_{dosya_adi}", help="Belgeyi Sil"):
                             st.session_state.delete_target = dosya_adi
                             st.rerun()
             else:
                 st.info("Henüz belge yüklenmemiş.")
-                
         except Exception as e:
             st.error(f"Liste alınamadı: {e}")
 
