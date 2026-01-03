@@ -341,7 +341,7 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
         if "vector_store" not in st.session_state or st.session_state.vector_store is None:
              st.warning("⚠️ Veritabanı bağlantısı yok. Lütfen sayfayı yenileyin.")
         else:
-            with st.spinner("Gemini (Cloud) düşünüyor..."):
+            with st.spinner("Düşünülüyor..."):
                 try:
                     # --- RETRY MEKANİZMASI ---
                     sonuc = None

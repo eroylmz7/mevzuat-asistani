@@ -23,9 +23,9 @@ def process_pdfs(uploaded_files):
         
     for uploaded_file in uploaded_files:
         try:
-            # ---------------------------------------------------------
-            # 1. ADIM: FİZİKSEL DOSYAYI STORAGE'A YÜKLE (EKSİK OLAN KISIM BUYDU)
-            # ---------------------------------------------------------
+            # ==========================================
+            # 1. ADIM: FİZİKSEL DOSYAYI STORAGE'A YÜKLE (EKSİK PARÇA BURASIYDI)
+            # ==========================================
             try:
                 # Dosyayı okumadan önce başa saralım (Garanti olsun)
                 uploaded_file.seek(0)
@@ -38,11 +38,12 @@ def process_pdfs(uploaded_files):
                     file_options={"content-type": "application/pdf", "upsert": "true"}
                 )
             except Exception as storage_err:
+                # Dosya zaten varsa hata verebilir, upsert=true ile genelde aşılır ama loglayalım.
                 print(f"Storage yükleme uyarısı ({uploaded_file.name}): {storage_err}")
 
-            # ---------------------------------------------------------
-            # 2. ADIM: VEKTÖR İŞLEME (MEVCUT KODUNUZ)
-            # ---------------------------------------------------------
+            # ==========================================
+            # 2. ADIM: VEKTÖR VE METİN İŞLEME
+            # ==========================================
             # Dosyayı tekrar başa sar (Yukarıda read() yaptığımız için imleç sonda kaldı)
             uploaded_file.seek(0)
             
@@ -68,9 +69,9 @@ def process_pdfs(uploaded_files):
             if os.path.exists(file_path):
                 os.remove(file_path)
             
-            # ---------------------------------------------------------
-            # 3. ADIM: VERİTABANI TABLOSUNU GÜNCELLE
-            # ---------------------------------------------------------
+            # ==========================================
+            # 3. ADIM: VERİTABANI LİSTESİNİ GÜNCELLE
+            # ==========================================
             try:
                 # Önce tablo kaydını sil (varsa), sonra ekle
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
@@ -81,13 +82,13 @@ def process_pdfs(uploaded_files):
         except Exception as e:
             st.error(f"{uploaded_file.name} işlenirken hata: {e}")
 
-    # ---------------------------------------------------------
-    # 4. ADIM: PINECONE VEKTÖR YÜKLEME
-    # ---------------------------------------------------------
+    # ==========================================
+    # 4. ADIM: PINECONE YÜKLEME
+    # ==========================================
     if all_documents:
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            model_kwargs={'device': 'cpu'} # CPU zorlaması (Garanti olsun)
+            model_kwargs={'device': 'cpu'} # Cloud hatası için CPU zorlaması
         )
         
         vector_store = PineconeVectorStore.from_documents(
@@ -116,7 +117,7 @@ def delete_document_cloud(file_name):
             # 2. Tablodan sil (Liste)
             supabase.table("dokumanlar").delete().eq("dosya_adi", file_name).execute()
             
-            # 3. Storage'dan sil (Fiziksel Dosya) - YENİ EKLENDİ ✅
+            # 3. Storage'dan sil (Fiziksel Dosya)
             supabase.storage.from_("belgeler").remove([file_name])
             
         except Exception as e:
