@@ -40,19 +40,18 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. RETRIEVAL (KAPSAYICI HAVUZ) ---
+    # --- 3. RETRIEVAL (AYAR GÜNCELLEMESİ) ---
     try:
-        # k=70 yapıyoruz. Neden? 
-        # Çünkü "Yayın Şartı" arandığında eski yönetmelik (Genel) puanı yüksek çıkıp öne geçebilir.
-        # Yeni ve kısa belge (Özel) aşağılarda kalmasın diye havuzu genişletiyoruz.
+        # fetch_k=160 (Geniş tara) kalsın ama LLM'e gideni (k) düşürelim.
+        # k=80 çok fazlaydı, 35-40 idealdir.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=70,           
-            fetch_k=100,    
-            lambda_mult=0.5 
+            k=40,            # DÜŞÜRÜLDÜ (Dikkati dağılmaması için)
+            fetch_k=160,     # AYNI KALDI (Geniş tarasın)
+            lambda_mult=0.7  # Çeşitliliği artırdık (Farklı belgelerden alsın)
         )
     except Exception as e:
-        return {"answer": f"Veritabanı arama hatası: {str(e)}", "sources": []}
+        return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
     # --- 4. AKILLI ETİKETLEME VE ÖNCELİKLENDİRME ---
     context_text = ""

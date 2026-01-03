@@ -368,13 +368,19 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                         if any(keyword in answer_text.lower() for keyword in negative_keywords):
                             sources = [] 
 
-                        # HTML Kaynak Gösterimi
+                        # Kaynakları HTML Bloğu Olarak Hazırlanması (GİZLENEBİLİR VERSİYON)
                         sources_html = ""
                         if sources: 
-                            sources_html += '<div class="source-container"><div class="source-header">📚 REFERANSLAR</div>'
+                            # <details> etiketi varsayılan olarak kapalı. Kullanıcı isterse açacak.
+                            sources_html += '''
+                            <br>
+                            <details style="border: 1px solid #334155; border-radius: 8px; padding: 10px; background-color: #1e293b;">
+                                <summary style="cursor: pointer; font-weight: bold; color: #60a5fa;">📚 REFERANSLAR (Görmek için tıklayın)</summary>
+                                <div style="margin-top: 10px;">
+                            '''
                             for src in sources:
-                                sources_html += f'<div class="source-item"><span class="source-icon">📄</span> {src}</div>'
-                            sources_html += '</div>'
+                                sources_html += f'<div class="source-item" style="margin-bottom: 5px; font-size: 0.9em;">📄 {src}</div>'
+                            sources_html += '</div></details>'
                         
                         final_content = answer_text + sources_html
                         
