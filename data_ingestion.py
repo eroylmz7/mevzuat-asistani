@@ -18,11 +18,10 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. KESKİN NİŞANCI DEDEKTİF 🕵️‍♂️ ---
+# --- 2. HİBRİT DEDEKTİF (KELİME + IZGARA ANALİZİ) 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    Sadece çok özel akademik tablo terimleri varsa Vision açar.
-    Çizgi/Kutu sayısına bakmaz (Çizgisiz tabloları kaçırmamak için).
+    Hem akademik terimlere hem de görsel tablo yapısına (ızgara) bakar.
     """
     try:
         doc = fitz.open(file_path)
@@ -34,34 +33,52 @@ def analyze_pdf_complexity(file_path):
             page = doc[i]
             text = page.get_text().lower()
             
-            # PARMAK İZİ LİSTESİ (Çok Spesifik)
-            # YÖKSİS ve DOI çıkarıldı (Standart belgelerde olabiliyor)
+            # 1. KELİME KONTROLÜ (Akademik Tablolar İçin)
             academic_keywords = [
                 "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
-                "çeyreklik", "quartile", "impact factor"
+                "yöksis", "doi", "çeyreklik", "quartile", "impact factor",
+                "doktora", "yüksek lisans", "yayın şartı"
             ]
-            
-            # Bu kelimelerden biri bile varsa, bu %100 bir akademik yayın tablosudur.
             found = [kw for kw in academic_keywords if kw in text]
-            
             if found:
-                return True, f"Akademik Tablo Terimi Bulundu: {found[0]}"
+                return True, f"Akademik Terim: {found[0]}"
+
+            # 2. GEOMETRİK KONTROL (Genel Tablolar İçin)
+            # Sadece çizgi sayısına bakmak yetmez (altı çizili başlıklar yanıltır).
+            # Çizgilerin "Kafes" (Grid) oluşturup oluşturmadığına bakıyoruz.
+            drawings = page.get_drawings()
             
+            # Eğer sayfada çok fazla çizgi varsa (Örn: 30+), muhtemelen tablodur.
+            if len(drawings) > 30:
+                return True, f"Yoğun Çizim ({len(drawings)} adet)"
+            
+            # Daha az çizgi varsa (10-30 arası), bunların kesişip kesişmediğini anlamaya çalışalım.
+            # Basit mantık: Hem çok sayıda "rect" (dikdörtgen kutu) varsa tablodur.
+            rect_count = 0
+            for d in drawings:
+                # 'items' içinde 're' (rect) varsa bu bir kutucuktur.
+                if 'items' in d:
+                    for item in d['items']:
+                        if item[0] == 're':
+                            rect_count += 1
+            
+            if rect_count > 3: # En az 3 tane kapalı kutu varsa tablodur
+                return True, f"Tablo Hücreleri ({rect_count} kutu)"
+
         return False, "Standart Metin"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
         return False, "Hata Sonrası Standart Mod"
 
-# --- 3. VISION OKUMA (SESSİZ HATA YÖNETİMİ 🤫) ---
+# --- 3. VISION OKUMA (SESSİZ HATA YÖNETİMİ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
     extracted_text = ""
     doc = fitz.open(file_path)
     
-    # Kullanıcıya bilgi ver (Sadece Vision açılırsa görünür)
-    st.toast(f"👁️ Vision Modu Devrede: Karmaşık tablo taranıyor...", icon="⚡")
+    st.toast(f"👁️ Vision Devrede: {os.path.basename(file_path)} taranıyor...", icon="⚡")
     
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -81,11 +98,12 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
+            # PROMPT: Hiyerarşi ve Bağlam
             prompt = """
-            BU BİR AKADEMİK TABLODUR. 
-            1. Tablo başlıklarını her satıra ekle (Örn: "DOKTORA ŞARTI: Q1 yayın").
-            2. Dipnotları ilgili maddeyle birleştir.
-            3. Markdown tablosu olarak ver.
+            GÖREV: Bu belgeyi analiz et. Eğer bir tablo varsa:
+            1. Tablodaki her satırın başına ana başlığı ekle (Örn: "DERS PROGRAMI: Pazartesi 09.00").
+            2. Tablo yapısını Markdown olarak koru.
+            3. Dipnotları ilgili kısımla birleştir.
             """
             
             response = model.generate_content(
@@ -93,22 +111,18 @@ def pdf_image_to_text_with_gemini(file_path):
                 safety_settings=safety_settings
             )
             
-            # 🔥 SESSİZ HATA YÖNETİMİ 🔥
-            # response.text'e erişmeden önce kontrol ediyoruz.
-            # Eğer erişilemezse (Telif/Güvenlik), sessizce yedeğe geçiyoruz.
             try:
                 if hasattr(response, 'text') and response.text:
                     extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
                 else:
-                    raise ValueError("Boş veya Engellenmiş Cevap")
+                    raise ValueError("Boş Cevap")
             except Exception:
-                # Kırmızı hata basmak yok! Sessizce logla ve devam et.
-                print(f"⚠️ Sayfa {page_num+1} Vision ile okunamadı (Telif/Güvenlik), standart okuma yapılıyor.")
+                # Sessizce yedeğe geç
+                print(f"Vision okuyamadı (Sayfa {page_num+1}), standart moda geçildi.")
                 extracted_text += page.get_text()
 
         except Exception as e:
-            # Genel API hatası olursa da durma, standart oku.
-            print(f"⚠️ Vision API Hatası: {e}")
+            print(f"Vision API Hatası: {e}")
             extracted_text += page.get_text()
             
     return extracted_text
@@ -134,15 +148,13 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            should_use_vision = use_vision_mode or is_complex
-            
-            # EKRANA BİLGİ VER (DEBUG)
-            # Sadece Vision açıldıysa uyarı verelim ki çalıştığını gör.
-            if should_use_vision:
-                st.warning(f"🔍 Vision Modu Aktif: {uploaded_file.name}\nSebep: {reason}")
+            # EKRANA BİLGİ VER
+            if is_complex:
+                st.warning(f"🔍 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
-                # Standart modda yeşil tik (Kullanıcı rahatlasın)
                 st.success(f"✅ Hızlı Mod: {uploaded_file.name}")
+            
+            should_use_vision = use_vision_mode or is_complex
             
             full_text = ""
             if should_use_vision:
@@ -151,7 +163,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Güvenlik: Metin boşsa tekrar oku
+            # Güvenlik Ağı: Eğer metin boşsa tekrar standart oku
             if not full_text.strip():
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
@@ -209,9 +221,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         return vector_store
     
     return None
-
-# --- DİĞER FONKSİYONLAR ---
-# ... (delete_document_cloud ve connect_to_existing_index aynen kalacak)
+    
+# ... (DİĞER FONKSİYONLAR AYNI KALACAK: delete_document_cloud, connect_to_existing_index)
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
