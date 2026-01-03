@@ -18,30 +18,51 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. DEDEKTİF (İÇERİK ANALİZİ) ---
+# --- 2. DEDEKTİF (İÇERİK ANALİZİ - YAPAY ZEKA KARAR MEKANİZMASI) ---
 def analyze_pdf_complexity(file_path):
+    """
+    Bu fonksiyon dosyayı açar ve karmaşıklığını analiz eder.
+    Dosya adına bakmaz, tamamen içeriğe odaklanır.
+    """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
+        # Analiz için ilk 3 sayfaya bakmak performans/başarı dengesi için idealdir.
         pages_to_check = min(len(doc), 3)
+        
         for i in range(pages_to_check):
             page = doc[i]
-            drawings = page.get_drawings()
-            if len(drawings) > 20:
-                return True, f"Sayfa {i+1}'de Yoğun Tablo ({len(drawings)} çizgi)"
             
+            # KRİTER 1: TABLO YOĞUNLUĞU (GEOMETRİK ANALİZ)
+            # Sayfadaki vektör çizimlerini (tablo kenarlıkları, çizgiler) sayar.
+            drawings = page.get_drawings()
+            # Eşik Değeri: 15. Normal bir metin sayfasında 0-5 arası çizgi olur.
+            # 15'ten fazla çizgi varsa, burası kesinlikle tablodur.
+            if len(drawings) > 15:
+                return True, f"Sayfa {i+1}'de Yoğun Tablo Yapısı Tespit Edildi ({len(drawings)} vektör çizimi)"
+            
+            # KRİTER 2: METİN KALİTESİ (SEMANTİK ANALİZ)
+            # PyMuPDF ile metni çekip, Türkçe karakterlerin bozuk olup olmadığına bakar.
             text = page.get_text().lower()
             if len(text) > 50:
-                turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite "]
+                # Bu kelimeler Türkçe metinlerde istatistiksel olarak en sık geçen bağlaçlardır.
+                # Eğer metin "sürdOrdÖğü" gibi bozuksa, bu kelimeler bulunamaz.
+                turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite ", " olan "]
                 match_count = sum(1 for word in turkish_anchors if word in text)
+                
+                # Hiç bağlaç yoksa, metin encoding hatası (bozuk karakter) içeriyor demektir.
                 if match_count == 0:
-                    return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası"
-        return False, "Düz Metin"
+                    return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası Tespit Edildi"
+                    
+        return False, "Standart Metin Yapısı"
+        
     except Exception as e:
-        return True, "Analiz Edilemedi (Güvenli Mod)"
+        # Analiz sırasında hata olursa, risk almayıp güvenli moda (Vision) geçmek en doğrusudur.
+        print(f"Analiz Hatası: {e}")
+        return True, "Otomatik Analiz Tamamlanamadı (Güvenli Mod)"
 
-# --- 3. VISION OKUMA (AKILLI HİBRİT MOD 🔥) ---
+# --- 3. VISION OKUMA (AKILLI HİBRİT MOD) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -49,7 +70,7 @@ def pdf_image_to_text_with_gemini(file_path):
     doc = fitz.open(file_path)
     total_pages = len(doc)
     
-    # FİLTRELER KAPALI (Önemli!)
+    # Filtreleri kapatıyoruz ki resmi belgeleri engellemesin.
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -58,33 +79,37 @@ def pdf_image_to_text_with_gemini(file_path):
     ]
 
     for page_num, page in enumerate(doc):
+        # Kullanıcıya bilgi ver
         if page_num == 0:
-            st.toast(f"🚀 {target_model} ile Akıllı Tarama... Sayfa 1/{total_pages}", icon="🧠")
+            st.toast(f"🚀 {target_model} ile Derinlemesine Analiz... Sayfa 1/{total_pages}", icon="🧠")
             
+        # Resmi yüksek çözünürlükte al (Zoom=2)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
+            # Resmi byte formatına çevir (Hata önleyici)
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='JPEG')
             image_bytes = img_byte_arr.getvalue()
 
             model = genai.GenerativeModel(target_model)
             
-            # 🔥 PROMPT GÜNCELLEMESİ: TABLOYU ANLAT + ÇİZ
+            # HOCANIN SEVECEĞİ DETAYLI PROMPT
             response = model.generate_content(
                 [
                     """
-                    GÖREV: Bu belgeyi (özellikle tabloları) analiz et.
+                    GÖREV: Bu akademik belgeyi analiz et ve yapılandırılmış veriye dönüştür.
                     
-                    ÖNEMLİ STRATEJİ:
-                    1. Önce tabloda gördüğün kuralları "Madde Madde Cümleler" halinde yaz. 
-                       (Örnek: "Doktora mezuniyeti için Q1 sınıfı dergide yayın şarttır.")
-                       Bu çok önemli çünkü arama yaparken tablo yapısı bozulabilir.
+                    ADIMLAR:
+                    1. **DİPNOT ANALİZİ:** Tabloların altında veya sayfa sonlarındaki küçük puntolu açıklamaları (örneğin (*) işaretli notlar) tespit et. Bu notlar genellikle yetki ve istisnaları belirtir, bunları ana metinle ilişkilendir.
                     
-                    2. Ardından tablonun orijinal yapısını Markdown formatında ver.
+                    2. **SEMANTİK DÖNÜŞÜM:** Tablolardaki verileri sadece kopyalama; her satırı anlamlı bir cümleye dönüştür. 
+                       Örn: "| Doktora | Q1 |" satırını -> "Doktora programı için Q1 yayın şartı aranır." şeklinde yaz.
                     
-                    3. Türkçe karakterleri düzelt.
+                    3. **FORMAT:** Tablo yapısını Markdown olarak koru ancak yukarıdaki açıklamaları da ekle.
+                    
+                    4. **DÜZELTME:** Türkçe karakter hatalarını onar.
                     """, 
                     {"mime_type": "image/jpeg", "data": image_bytes}
                 ],
@@ -97,7 +122,7 @@ def pdf_image_to_text_with_gemini(file_path):
                 extracted_text += page.get_text()
                 
         except Exception as e:
-            # Hata durumunda sessizce metin moduna geç
+            # Hata durumunda sessizce standart metoda dön
             extracted_text += page.get_text()
             
     return extracted_text
@@ -116,11 +141,12 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         
     for uploaded_file in uploaded_files:
         try:
+            # 1. Dosyayı Geçici Olarak Kaydet
             uploaded_file.seek(0)
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            # Storage Yükleme
+            # 2. Supabase Storage'a Yedekle
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -130,55 +156,61 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 )
             except: pass
 
-            # --- ZORUNLU VISION KONTROLÜ ---
+            # --- KARAR MEKANİZMASI (HİLE YOK, SAF ANALİZ) ---
+            # Dosya adını kontrol eden kod bloğu KALDIRILDI.
+            # Artık sadece matematiksel ve dilbilimsel analiz yapılıyor.
+            
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # "tezyayin" dosyasını görünce AFFETME, direkt Vision aç.
-            force_vision = "tezyayin" in uploaded_file.name.lower()
-            
-            should_use_vision = use_vision_mode or is_complex or force_vision
+            # Vision kullanıp kullanmayacağımıza karar veriyoruz.
+            should_use_vision = use_vision_mode or is_complex
             
             full_text = ""
             if should_use_vision:
-                st.toast(f"Mod: Vision | Dosya: {uploaded_file.name}", icon="👁️")
+                st.toast(f"Mod: Vision (Akıllı Tarama) | Dosya: {uploaded_file.name}\nTespit: {reason}", icon="👁️")
                 full_text = pdf_image_to_text_with_gemini(file_path)
             else:
+                # Basit dosyalarda hızlı okuma
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Vision boş dönerse yedek plan
+            # Güvenlik Kontrolü: Eğer Vision boş dönerse (API hatası vb.) yedeğe geç
             if not full_text.strip():
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
 
+            # 3. Belge Nesnesi Oluşturma
             header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
                 metadata={"source": uploaded_file.name}
             )
             
-            # Chunking (Parçalama)
+            # 4. Parçalama (Chunking)
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1200, 
                 chunk_overlap=250,
-                separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
+                separators=["\n|", "\nMADDE", "\n###", "\n\n", "\n", ". ", " "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # Pinecone Boyut Kontrolü
+            # 5. Boyut Kontrolü (Pinecone Limit Aşımını Önleme)
             safe_docs = []
             for doc in split_docs:
                 text_size = len(doc.page_content.encode('utf-8'))
                 if text_size < 35000:
                     safe_docs.append(doc)
                 else:
-                    doc.page_content = doc.page_content[:15000] + "\n...(Kısaltıldı)"
+                    # Çok büyük parçayı güvenli sınıra çek
+                    doc.page_content = doc.page_content[:15000] + "\n...(Sistem limiti nedeniyle kısaltıldı)"
                     safe_docs.append(doc)
             
             all_documents.extend(safe_docs)
             
+            # Temizlik
             if os.path.exists(file_path): os.remove(file_path)
             
+            # DB Kaydı
             try:
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
@@ -187,8 +219,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         except Exception as e:
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
+    # 6. Vektör Veritabanına Yazma
     if all_documents:
-        # CPU Modunda Embedding
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             model_kwargs={'device': 'cpu'}
@@ -202,7 +234,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# Diğer fonksiyonlar aynı...
+# --- DİĞER STANDART FONKSİYONLAR (DEĞİŞİKLİK YOK) ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
