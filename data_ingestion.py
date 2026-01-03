@@ -44,7 +44,7 @@ def analyze_pdf_complexity(file_path):
         print(f"Analiz Hatası: {e}")
         return True, "Analiz Edilemedi (Güvenli Mod)"
 
-# --- 3. VISION OKUMA ---
+# --- 3. VISION OKUMA (FİLTRELER KAPALI 🔥) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -52,6 +52,15 @@ def pdf_image_to_text_with_gemini(file_path):
     doc = fitz.open(file_path)
     total_pages = len(doc)
     
+    # 🔥 GÜVENLİK AYARLARI (BLOCK_NONE)
+    # Bu ayarlar Gemini'nin "Bu içerik güvensiz olabilir" deyip susmasını engeller.
+    safety_settings = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+    ]
+
     for page_num, page in enumerate(doc):
         if page_num == 0:
             st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
@@ -65,23 +74,30 @@ def pdf_image_to_text_with_gemini(file_path):
             image_bytes = img_byte_arr.getvalue()
 
             model = genai.GenerativeModel(target_model)
-            response = model.generate_content([
-                """
-                GÖREV: Bu görseldeki belgeyi analiz et.
-                1. Tablo yapısını Markdown formatında koru.
-                2. Türkçe karakterleri düzelt.
-                3. Sadece metni ver.
-                """, 
-                {"mime_type": "image/jpeg", "data": image_bytes}
-            ])
+            
+            # safety_settings parametresini buraya ekledik!
+            response = model.generate_content(
+                [
+                    """
+                    GÖREV: Bu görseldeki belgeyi analiz et.
+                    1. Tablo yapısını Markdown formatında koru.
+                    2. Türkçe karakterleri düzelt.
+                    3. Sadece metni ver.
+                    """, 
+                    {"mime_type": "image/jpeg", "data": image_bytes}
+                ],
+                safety_settings=safety_settings  # 🔥 FİLTRELERİ KAPATAN KOD
+            )
             
             if response.text:
                 extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
             else:
+                # Eğer yine de boş dönerse (çok nadir), hata verme, eski usül oku.
                 extracted_text += page.get_text()
                 
         except Exception as e:
-            st.error(f"❌ GEMINI HATASI (Sayfa {page_num + 1}): {e}")
+            # Hata olsa bile kullanıcıyı korkutma, sessizce yedeğe geç.
+            print(f"Gemini Vision Hatası (Sayfa {page_num+1}): {e}")
             extracted_text += page.get_text()
             
     return extracted_text
@@ -100,7 +116,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         
     for uploaded_file in uploaded_files:
         try:
-            # Kayıt ve Storage İşlemleri
             uploaded_file.seek(0)
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
@@ -114,7 +129,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 )
             except: pass
 
-            # Karar Anı
             is_complex, reason = analyze_pdf_complexity(file_path)
             force_vision = "tezyayin" in uploaded_file.name.lower()
             should_use_vision = use_vision_mode or is_complex or force_vision
@@ -127,34 +141,33 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Belge Oluşturma
+            # Boş içerik kontrolü (Hata durumunda)
+            if not full_text.strip():
+                 # Vision başarısız olduysa son çare olarak PyMuPDF ile tekrar dene
+                 doc = fitz.open(file_path)
+                 for page in doc: full_text += page.get_text()
+
             header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
                 metadata={"source": uploaded_file.name}
             )
             
-            # 🔥 BÖLME STRATEJİSİ (GÜNCELLENDİ)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000,       # Chunk boyutunu düşürdük (Güvenlik için)
+                chunk_size=1000, 
                 chunk_overlap=200,
-                separators=["\n|", "\nMADDE", "\n###", "\n\n", "\n", ". ", " "] # Daha agresif bölücüler
+                separators=["\n|", "\nMADDE", "\n###", "\n\n", "\n", ". ", " "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # 🔥 PINECONE BOYUT KONTROLÜ (BU KISIM HATAYI ÇÖZER) 🔥
+            # Pinecone Boyut Kontrolü (Hata Önleyici)
             safe_docs = []
             for doc in split_docs:
-                # Metnin byte boyutunu hesapla (UTF-8)
                 text_size = len(doc.page_content.encode('utf-8'))
-                # Pinecone limiti 40KB (40960 bytes). Biz güvenli olsun diye 35KB sınır koyalım.
                 if text_size < 35000:
                     safe_docs.append(doc)
                 else:
-                    # Eğer çok büyükse, parçayı ikiye bölüp ekleyelim veya kısaltalım
-                    print(f"⚠️ UYARI: Çok büyük parça tespit edildi ({text_size} bytes). Kısaltılıyor.")
-                    # Basit çözüm: İlk 35.000 karakteri al
-                    doc.page_content = doc.page_content[:15000] + "\n...(Metin limiti nedeniyle kesildi)"
+                    doc.page_content = doc.page_content[:15000] + "\n...(Kısaltıldı)"
                     safe_docs.append(doc)
             
             all_documents.extend(safe_docs)
@@ -170,6 +183,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
     if all_documents:
+        # 🔥 ÖNEMLİ: sentence-transformers sürümüne dikkat (CPU Modu)
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             model_kwargs={'device': 'cpu'}
@@ -183,7 +197,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- DİĞER FONKSİYONLAR ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
