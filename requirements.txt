@@ -10,3 +10,4 @@ sentence-transformers
 pymupdf  # <-- İŞTE YENİ GÜÇLÜ OKUYUCUMUZ (pypdf gitti)
 python-dotenv
 pandas
+pdfplumber
