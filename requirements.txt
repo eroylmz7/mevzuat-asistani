@@ -6,7 +6,7 @@ langchain-core
 langchain-google-genai
 langchain-pinecone
 langchain-text-splitters
-pinecone-client
+pinecone
 sentence-transformers
 pymupdf
 python-dotenv
