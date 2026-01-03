@@ -5,9 +5,11 @@ langchain-community==0.0.38
 langchain-core==0.1.52
 langchain-google-genai
 langchain-pinecone==0.1.1
-pinecone>=3.0.0
+pinecone-client==3.0.0
 sentence-transformers
-pymupdf  # <-- İŞTE YENİ GÜÇLÜ OKUYUCUMUZ (pypdf gitti)
+pymupdf
 python-dotenv
 pandas
 pdfplumber
+pillow
+google-generativeai

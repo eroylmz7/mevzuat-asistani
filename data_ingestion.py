@@ -9,6 +9,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.schema import Document
 from supabase import create_client
 from pinecone import Pinecone
+import io # 🔥 EKLENDİ: Hafızada resim işlemi için gerekli
 
 # --- 1. GEMINI AYARLARI ---
 def configure_gemini():
@@ -46,11 +47,11 @@ def analyze_pdf_complexity(file_path):
         print(f"Analiz Hatası: {e}")
         return True, "Analiz Edilemedi (Güvenli Mod)"
 
-# --- 3. VISION OKUMA (HATA GÖSTEREN VERSİYON) ---
+# --- 3. VISION OKUMA (LIBRARY BUG FIX SÜRÜMÜ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     
-    # 🔥 SENİN İSTEDİĞİN MODEL: gemini-2.5-flash
+    # 🔥 SENİN İSTEDİĞİN MODEL
     target_model = 'gemini-2.5-flash'
     
     extracted_text = ""
@@ -58,15 +59,20 @@ def pdf_image_to_text_with_gemini(file_path):
     total_pages = len(doc)
     
     for page_num, page in enumerate(doc):
-        # İlerleme durumunu göster
         if page_num == 0:
             st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
             
-        # Resmi hazırla (Zoom=2)
+        # Resmi al (Zoom=2)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
+            # 🔥 KRİTİK DÜZELTME: PIL Objesi yerine RAW BYTES gönderiyoruz.
+            # Bu işlem 'PngImagePlugin' hatasını atlatır.
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='JPEG')
+            image_bytes = img_byte_arr.getvalue()
+
             model = genai.GenerativeModel(target_model)
             
             response = model.generate_content([
@@ -74,27 +80,21 @@ def pdf_image_to_text_with_gemini(file_path):
                 GÖREV: Bu görseldeki belgeyi analiz et.
                 1. Tablo yapısını Markdown olarak koru.
                 2. Türkçe karakterleri düzelt.
-                3. Sadece metni ver.
+                3. Sadece metni ver, yorum yapma.
                 """, 
-                img
+                {"mime_type": "image/jpeg", "data": image_bytes} # PIL yerine sözlük formatı
             ])
             
-            # Cevap geldi mi kontrol et
             if response.text:
                 extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
             else:
                 st.warning(f"⚠️ Sayfa {page_num + 1}: Model boş cevap döndü.")
-                extracted_text += page.get_text() # Yedek
+                extracted_text += page.get_text()
                 
         except Exception as e:
-            # 🔥 İŞTE BURASI ÇOK ÖNEMLİ: HATAYI GİZLEME, BAS!
             error_msg = str(e)
             st.error(f"❌ GEMINI 2.5 HATASI (Sayfa {page_num + 1}): {error_msg}")
-            
-            # Hata '404' veya 'Not Found' içeriyorsa model isminde sorun vardır.
-            # Hata '429' ise kota dolmuştur.
-            
-            # Yedek plana geç (PyMuPDF) ki sistem çökmesin
+            # Hata durumunda yedeğe geç
             extracted_text += page.get_text()
             
     return extracted_text
@@ -119,7 +119,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            # 2. Storage (Opsiyonel)
+            # 2. Storage
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -132,14 +132,14 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- KARAR ANI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # Eğer "tezyayin" ise ve "gemini-2.5" testi yapıyorsak Vision'ı zorla aç
+            # Zorunlu Vision
             force_vision = "tezyayin" in uploaded_file.name.lower()
             should_use_vision = use_vision_mode or is_complex or force_vision
             
             full_text = ""
             
             if should_use_vision:
-                st.toast(f"Mod: Vision (Gemini 2.5) | Dosya: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
+                st.toast(f"Mod: Vision ({target_model}) | Dosya: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
                 full_text = pdf_image_to_text_with_gemini(file_path)
                 
                 # İçerik Kontrolü
@@ -156,7 +156,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 metadata={"source": uploaded_file.name}
             )
             
-            # Parçalama (Chunking)
             text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=1500, chunk_overlap=300,
                 separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
@@ -190,7 +189,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- SİLME VE BAĞLANTI (Standart) ---
+# --- DİĞER FONKSİYONLAR AYNI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
