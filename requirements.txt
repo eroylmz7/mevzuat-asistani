@@ -7,7 +7,7 @@ langchain-google-genai
 langchain-pinecone
 langchain-text-splitters
 pinecone
-sentence-transformers
+sentence-transformers==2.7.0
 pymupdf
 python-dotenv
 pandas
