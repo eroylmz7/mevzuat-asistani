@@ -4,12 +4,13 @@ import streamlit as st
 from PIL import Image
 import google.generativeai as genai
 from langchain_pinecone import PineconeVectorStore
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+# 🔥 DÜZELTME BURADA: Yeni versiyonda modül ismi değişti!
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.schema import Document
 from supabase import create_client
 from pinecone import Pinecone
-import io  # 🔥 EKLENDİ: Resim hatasını çözmek için şart!
+import io
 
 # --- 1. GEMINI AYARLARI ---
 def configure_gemini():
