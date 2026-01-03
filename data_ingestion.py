@@ -18,63 +18,54 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. AKILLI DEDEKTİF (KONUŞKAN VERSİYON 🗣️) ---
+# --- 2. ÇOK SIKI DEDEKTİF (SADECE AKADEMİK TABLO) 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
+    """
+    Sadece 'Q1', 'SSCI' gibi çok spesifik terimler varsa Vision açar.
+    Normal 'Tablo' kelimesi veya çizgiler artık Vision açmaz.
+    """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
         pages_to_check = min(len(doc), 3)
-        complexity_score = 0
-        reasons = []
-        total_text_len = 0
-
+        
         for i in range(pages_to_check):
             page = doc[i]
             text = page.get_text().lower()
-            total_text_len += len(text)
             
-            # 1. AKADEMİK KELİMELER (Yüksek Puan)
-            high_priority = ["q1", "q2", "ssci", "sci", "doi", "yöksis", "çeyreklik", "enstitü", "anabilim", "tez", "yayın"]
-            hits = [kw for kw in high_priority if kw in text]
-            if hits:
-                complexity_score += 5
-                reasons.append(f"Kritik Kelimeler: {', '.join(hits[:3])}")
-
-            # 2. YAPISAL KELİMELER
-            medium_priority = ["tablo", "kriter", "şart", "koşul", "madde"]
-            if any(kw in text for kw in medium_priority):
-                complexity_score += 1
-
-            # 3. ÇİZGİLER
-            if len(page.get_drawings()) > 5:
-                complexity_score += 1
-                reasons.append("Tablo Çizgileri")
-
-        # 🔥 KRİTİK KONTROL: Eğer hiç yazı yoksa (Scanned PDF), KESİN VISION AÇ!
-        if total_text_len < 100:
-            return True, "Metin Bulunamadı (Taranmış PDF)"
-
-        # Skor 1 bile olsa aç (Çok hassas yaptık)
-        if complexity_score >= 1:
-            return True, f"Tespit Edildi (Skor: {complexity_score}, Sebepler: {reasons})"
+            # 1. KESİN KANIT LİSTESİ (SADECE BUNLAR VARSA AÇ)
+            # Bu liste 'tezyayinsarti.pdf' dosyasının parmak izidir.
+            # Standart yönetmeliklerde bunlar ASLA bir arada bulunmaz.
+            academic_keywords = [
+                "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
+                "yöksis", "doi", "çeyreklik", "quartile"
+            ]
             
-        return False, "Düz Metin"
+            # Eşleşme kontrolü
+            found = [kw for kw in academic_keywords if kw in text]
+            
+            if len(found) > 0:
+                # Sadece kelime yetmez, sayfada biraz da çizim (tablo) olsun ki emin olalım.
+                if len(page.get_drawings()) > 5:
+                     return True, f"Karmaşık Akademik Tablo Tespit Edildi ({found[0]})"
+            
+        return False, "Standart Metin"
         
     except Exception as e:
-        return True, f"Analiz Hatası: {str(e)}"
+        print(f"Analiz Hatası: {e}")
+        return False, "Hata Sonrası Standart Mod"
 
-# --- 3. VISION OKUMA (HATA GÖSTEREN VERSİYON 🚨) ---
+# --- 3. VISION OKUMA (HATA OLURSA SESSİZCE GEÇ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
-    target_model = 'gemini-2.5-flash' # Eğer bu hata verirse 1.5-flash dene
+    target_model = 'gemini-2.5-flash'
     extracted_text = ""
     doc = fitz.open(file_path)
-    total_pages = len(doc)
     
-    # EKRANA BİLGİ BAS
-    st.info(f"👀 Vision Modu Başladı! Model: {target_model} | Sayfa Sayısı: {total_pages}")
+    st.toast(f"👁️ Vision Devrede: Karmaşık tablo okunuyor...", icon="⚡")
     
+    # Tüm filtreleri kapat
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -94,14 +85,10 @@ def pdf_image_to_text_with_gemini(file_path):
             model = genai.GenerativeModel(target_model)
             
             prompt = """
-            GÖREV: Bu akademik tabloyu VERİTABANI İÇİN oku.
-            
-            KURALLAR:
-            1. Tablonun ANA BAŞLIĞINI (Örn: "DOKTORA") her satırın başına ekle.
-               Örnek Çıktı: "DOKTORA MEZUNİYET ŞARTI: Q1 yayın gerekir."
-            2. "VEYA" bağlaçlarını açıkla (Biri yeterlidir de).
-            3. Dipnotları (yıldızlı yazılar) ilgili maddeye ekle.
-            4. Markdown tablosu olarak ver.
+            BU BİR AKADEMİK TABLODUR. 
+            1. Tablo başlıklarını her satıra ekle (Örn: "DOKTORA ŞARTI: Q1 yayın").
+            2. Dipnotları ilgili maddeyle birleştir.
+            3. Markdown tablosu olarak ver.
             """
             
             response = model.generate_content(
@@ -109,17 +96,20 @@ def pdf_image_to_text_with_gemini(file_path):
                 safety_settings=safety_settings
             )
             
-            if response.text:
-                extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
-                # Başarılı olursa yeşil tik at
-                # st.success(f"Sayfa {page_num+1} Okundu ✅") 
-            else:
-                st.warning(f"⚠️ Sayfa {page_num+1}: Model BOŞ cevap döndü!")
+            # Hata kontrolü (Telif vb. takılırsa yedeğe geç)
+            try:
+                if response and response.text:
+                    extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
+                else:
+                    raise ValueError("Boş Cevap")
+            except ValueError:
+                # Sessizce yedeğe geç, kullanıcıya hata basıp süreci durdurma
+                print(f"Sayfa {page_num+1} Vision okuyamadı, standart moda geçildi.")
                 extracted_text += page.get_text()
-                
+
         except Exception as e:
-            # 🔥 HATAYI GİZLEME, GÖSTER!
-            st.error(f"❌ GEMINI HATASI (Sayfa {page_num+1}): {e}")
+            # Genel hatada da yedeğe geç
+            print(f"Vision Hatası: {e}")
             extracted_text += page.get_text()
             
     return extracted_text
@@ -142,30 +132,29 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            # DEDEKTİF KARARI
+            # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # EKRANA KARARI YAZDIR (DEBUG)
+            # Sadece is_complex True ise uyarı ver, False ise sessizce geç.
             if is_complex:
-                st.warning(f"🕵️‍♂️ DEDEKTİF KARARI: Vision AÇIK\nDosya: {uploaded_file.name}\nSebep: {reason}")
-            else:
-                st.info(f"ℹ️ DEDEKTİF KARARI: Standart Mod\nDosya: {uploaded_file.name}\nSebep: Basit Metin")
+                st.warning(f"🔍 Vision Modu Açıldı: {uploaded_file.name}\nSebep: {reason}")
             
+            # use_vision_mode (Checkbox) kapalı gelse bile is_complex açar.
             should_use_vision = use_vision_mode or is_complex
             
             full_text = ""
             if should_use_vision:
                 full_text = pdf_image_to_text_with_gemini(file_path)
             else:
+                # Standart mod (Çok hızlıdır)
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
+            # İkinci Güvenlik Ağı: Eğer metin boşsa yine oku
             if not full_text.strip():
-                 st.error("⚠️ UYARI: Belge içeriği boş çıkarıldı! (Yedek mod çalıştı)")
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
 
-            # Belge oluşturma
             header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
@@ -179,11 +168,10 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # Pinecone Boyut Kontrolü
             safe_docs = []
             for doc in split_docs:
                 text_size = len(doc.page_content.encode('utf-8'))
-                if text_size < 38000: 
+                if text_size < 38000:
                     safe_docs.append(doc)
                 else:
                     doc.page_content = doc.page_content[:15000] + "\n...(Kısaltıldı)"
@@ -193,16 +181,13 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             
             if os.path.exists(file_path): os.remove(file_path)
             
-            # DB Temizliği
             try:
-                # Storage yükleme (Daha önce yapılmadıysa)
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
                 supabase.storage.from_("belgeler").upload(
                     path=uploaded_file.name, file=file_bytes,
                     file_options={"content-type": "application/pdf", "upsert": "true"}
                 )
-                
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
             except: pass
