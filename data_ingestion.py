@@ -4,10 +4,12 @@ import streamlit as st
 from PIL import Image
 import google.generativeai as genai
 from langchain_pinecone import PineconeVectorStore
-# 🔥 DÜZELTME BURADA: Yeni versiyonda modül ismi değişti!
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+# 🔥 YENİ ADRESLER BURADA (Kritik Değişiklikler)
+from langchain_text_splitters import RecursiveCharacterTextSplitter  # Eskisi: langchain.text_splitter
+from langchain_core.documents import Document                        # Eskisi: langchain.schema
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.schema import Document
+
 from supabase import create_client
 from pinecone import Pinecone
 import io
@@ -25,17 +27,14 @@ def analyze_pdf_complexity(file_path):
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
-        # İlk 3 sayfaya bak
         pages_to_check = min(len(doc), 3)
         for i in range(pages_to_check):
             page = doc[i]
             
-            # Tablo Çizgisi Kontrolü (Eşik: 20)
             drawings = page.get_drawings()
             if len(drawings) > 20:
                 return True, f"Sayfa {i+1}'de Yoğun Tablo ({len(drawings)} çizgi)"
             
-            # Dil/Encoding Kontrolü
             text = page.get_text().lower()
             if len(text) > 50:
                 turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite "]
@@ -52,7 +51,6 @@ def analyze_pdf_complexity(file_path):
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     
-    # 🔥 SENİN MODELİN
     target_model = 'gemini-2.5-flash'
     
     extracted_text = ""
@@ -63,13 +61,11 @@ def pdf_image_to_text_with_gemini(file_path):
         if page_num == 0:
             st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
             
-        # Resmi al (Zoom=2 netlik için)
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         
         try:
-            # 🔥 DÜZELTME BURADA: PIL Objesi yerine BYTE gönderiyoruz.
-            # Bu işlem 'PngImagePlugin' hatasını %100 çözer.
+            # Resim Hatası Çözümü (BytesIO)
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='JPEG')
             image_bytes = img_byte_arr.getvalue()
@@ -83,7 +79,7 @@ def pdf_image_to_text_with_gemini(file_path):
                 2. Türkçe karakterleri düzelt.
                 3. Sadece metni ver, yorum yapma.
                 """, 
-                {"mime_type": "image/jpeg", "data": image_bytes} # PIL yerine sözlük formatı
+                {"mime_type": "image/jpeg", "data": image_bytes}
             ])
             
             if response.text:
@@ -113,13 +109,11 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         
     for uploaded_file in uploaded_files:
         try:
-            # 1. Kaydet
             uploaded_file.seek(0)
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            # 2. Storage
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -129,27 +123,23 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 )
             except: pass
 
-            # --- KARAR ANI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # Zorunlu Vision
             force_vision = "tezyayin" in uploaded_file.name.lower()
             should_use_vision = use_vision_mode or is_complex or force_vision
             
             full_text = ""
             
             if should_use_vision:
-                st.toast(f"Mod: Vision ({target_model}) | Dosya: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
+                st.toast(f"Mod: Vision ({'gemini-2.5-flash'}) | Dosya: {uploaded_file.name}\nSebep: {reason}", icon="👁️")
                 full_text = pdf_image_to_text_with_gemini(file_path)
                 
-                # İçerik Kontrolü
                 if len(full_text) < 100:
                     st.error(f"⚠️ UYARI: {uploaded_file.name} tarandı ama içerik çok kısa! (Hata oluşmuş olabilir)")
             else:
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # --- BELGE OLUŞTURMA ---
             header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
             unified_doc = Document(
                 page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
@@ -165,7 +155,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             
             if os.path.exists(file_path): os.remove(file_path)
             
-            # DB Güncelleme
             try:
                 supabase.table("dokumanlar").delete().eq("dosya_adi", uploaded_file.name).execute()
                 supabase.table("dokumanlar").insert({"dosya_adi": uploaded_file.name}).execute()
@@ -174,7 +163,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
         except Exception as e:
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
-    # --- PINECONE ---
     if all_documents:
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
@@ -189,7 +177,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- SİLME VE BAĞLANTI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
