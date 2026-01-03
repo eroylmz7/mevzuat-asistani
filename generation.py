@@ -47,8 +47,8 @@ def generate_answer(question, vector_store, chat_history):
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
             k=40,            # DÜŞÜRÜLDÜ (Dikkati dağılmaması için)
-            fetch_k=160,     # AYNI KALDI (Geniş tarasın)
-            lambda_mult=0.7  # Çeşitliliği artırdık (Farklı belgelerden alsın)
+            fetch_k=50,     # AYNI KALDI (Geniş tarasın)
+            lambda_mult=0.9  # Çeşitliliği artırdık (Farklı belgelerden alsın)
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
