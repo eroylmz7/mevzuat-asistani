@@ -19,69 +19,73 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. SÜTUN HİZALAMA ANALİZİ (MÜHENDİSLİK ÇÖZÜMÜ) 📐 ---
+# --- 2. SÜTUN HİZALAMA ANALİZİ (GELİŞMİŞ MÜHENDİSLİK ÇÖZÜMÜ) 📐 ---
 def analyze_pdf_complexity(file_path):
     """
     Belgedeki metinlerin sol hizalamasına (X koordinatına) bakar.
-    Eğer metinler sürekli farklı yerlerden başlıyorsa (Sütun Yapısı), Vision açar.
-    Eğer hepsi soldan hizalıysa (Düz Metin), Hızlı Mod kullanır.
+    Yönetmelik girintilerini (indentation) tablo sütunu sanmaması için
+    daha akıllı bir yoğunluk kontrolü yapar.
     """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
+        # İlk 3 sayfayı tara
         pages_to_check = min(len(doc), 3)
         
         for i in range(pages_to_check):
             page = doc[i]
             
-            # Kelimelerin koordinatlarını al (dict formatı detaylıdır)
+            # Kelimelerin koordinatlarını al
             text_dict = page.get_text("dict")
-            
             x_starts = []
             
             for block in text_dict["blocks"]:
                 if "lines" in block:
                     for line in block["lines"]:
                         for span in line["spans"]:
-                            # Boşlukları ve çok kısa yazıları (sayfa no vb.) görmezden gel
-                            if len(span["text"].strip()) > 3:
-                                # X koordinatını al ve yuvarla (Örn: 52.4 -> 50)
-                                # Yuvarlama, milimetrik hataları tolere etmek için.
-                                x_starts.append(round(span["bbox"][0], -1))
+                            # Çok kısa yazıları (Madde no, a), b) gibi) ve boşlukları atla.
+                            # Çünkü bunlar "Sütun" değil, "Madde İşaretidir".
+                            if len(span["text"].strip()) > 5:
+                                # X koordinatını al ve DAHA GENİŞ yuvarla (Örn: 20px tolerans)
+                                # Bu sayede küçük girintiler (indent) ana metinle birleşir.
+                                x_starts.append(round(span["bbox"][0] / 20) * 20)
             
-            # Eğer sayfada hiç yazı yoksa (Taranmış PDF), direkt Vision.
+            # Eğer sayfada hiç anlamlı yazı yoksa (Taranmış PDF), direkt Vision.
             if not x_starts:
                 return True, "Metin Bulunamadı (Resim PDF)"
 
             # --- ANALİZ ---
             # X koordinatlarının frekansını say.
-            # Örn: {50: 100 satır, 70: 5 satır} -> Düz metin
-            # Örn: {50: 20 satır, 150: 20 satır, 300: 20 satır} -> TABLO!
             counter = collections.Counter(x_starts)
             
-            # En sık tekrar eden 5 hizalamayı al
-            most_common_alignments = counter.most_common(5)
+            # En sık tekrar eden hizalamaları al
+            most_common_alignments = counter.most_common()
             
-            # Eşik Değer: Eğer en az 3 farklı sütun (başlangıç noktası) 
-            # belirgin bir şekilde kullanılmışsa (örn: her biri en az 5 kez), bu bir tablodur.
+            # Eşik Değer: Gerçek bir sütun olması için o hizada EN AZ 15 SATIR olmalı.
+            # Yönetmelikteki a) b) c) şıkları genelde 3-5 satır sürer, bu yüzden elenirler.
+            # Tablolar ise sayfa boyu sürdüğü için 20-30 satır olur.
             significant_columns = 0
-            for x_pos, count in most_common_alignments:
-                if count >= 5: # Sayfada o hizada en az 5 satır varsa "Sütun" say.
-                    significant_columns += 1
+            active_columns = [] # Debug için
             
-            # KARAR: 3 veya daha fazla belirgin sütun varsa VISION AÇ.
+            for x_pos, count in most_common_alignments:
+                if count >= 15: # KRİTİK EŞİK: 15 Satır
+                    significant_columns += 1
+                    active_columns.append(f"X={x_pos} ({count} satır)")
+            
+            # KARAR: 
+            # 3 veya daha fazla "YOĞUN" sütun varsa VISION AÇ.
+            # (Yönetmeliklerde genelde sadece 1 yoğun sütun olur: Ana Metin)
             if significant_columns >= 3:
-                return True, f"Çoklu Sütun Yapısı ({significant_columns} aktif sütun)"
+                return True, f"Çoklu Sütun Yapısı Tespit Edildi ({significant_columns} sütun: {active_columns})"
                 
-            # --- YEDEK KELİME KONTROLÜ (GARANTİ OLSUN) ---
-            # Sadece 'Q1' gibi çok nadir kelimeler için bir arka kapı bırakıyoruz.
-            # Bu, algoritma sütunu kaçırırsa devreye girer.
+            # --- YEDEK KELİME KONTROLÜ  ---
             text_plain = page.get_text().lower()
+            # Sadece 'Q1' ve 'Çeyreklik' kelimeleri bir aradaysa aç (Tez Tablosu için sigorta)
             if "q1" in text_plain and "çeyreklik" in text_plain:
                 return True, "Akademik Terim (Q1) Tespit Edildi"
 
-        return False, "Tek Sütunlu Metin (Standart)"
+        return False, "Standart Akış Metni"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
