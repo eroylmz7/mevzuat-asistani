@@ -10,6 +10,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from supabase import create_client
 from pinecone import Pinecone
 import io
+import collections
 
 # --- 1. GEMINI AYARLARI ---
 def configure_gemini():
@@ -18,12 +19,12 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. YAPISAL MÜHENDİS DEDEKTİF (STRUKTÜREL ANALİZ) 🕵️‍♂️ ---
+# --- 2. SÜTUN HİZALAMA ANALİZİ (MÜHENDİSLİK ÇÖZÜMÜ) 📐 ---
 def analyze_pdf_complexity(file_path):
     """
-    Kelimelere bakmaz. Belgenin 'İskelet Yapısını' analiz eder.
-    1. Blok Sayısı (Tablolarda çok yüksektir).
-    2. Yatay/Dikey Çizgi Sayısı (Tablolarda ızgara oluşturur).
+    Belgedeki metinlerin sol hizalamasına (X koordinatına) bakar.
+    Eğer metinler sürekli farklı yerlerden başlıyorsa (Sütun Yapısı), Vision açar.
+    Eğer hepsi soldan hizalıysa (Düz Metin), Hızlı Mod kullanır.
     """
     try:
         doc = fitz.open(file_path)
@@ -34,52 +35,59 @@ def analyze_pdf_complexity(file_path):
         for i in range(pages_to_check):
             page = doc[i]
             
-            # --- KRİTER 1: METİN BLOK YOĞUNLUĞU ---
-            # Standart metinlerde paragraflar birleşiktir (Az blok).
-            # Tablolarda her hücre ayrı bir metin bloğudur (Çok blok).
-            text_blocks = page.get_text("blocks")
-            block_count = len(text_blocks)
+            # Kelimelerin koordinatlarını al (dict formatı detaylıdır)
+            text_dict = page.get_text("dict")
             
-            # Eşik Değer: Bir sayfada 40'tan fazla ayrı metin parçası varsa, 
-            # bu %99 ihtimalle karmaşık bir tablodur. (Yönetmeliklerde genelde 10-15 olur).
-            if block_count > 40:
-                return True, f"Yüksek Parçalanma Tespit Edildi ({block_count} metin bloğu)"
+            x_starts = []
+            
+            for block in text_dict["blocks"]:
+                if "lines" in block:
+                    for line in block["lines"]:
+                        for span in line["spans"]:
+                            # Boşlukları ve çok kısa yazıları (sayfa no vb.) görmezden gel
+                            if len(span["text"].strip()) > 3:
+                                # X koordinatını al ve yuvarla (Örn: 52.4 -> 50)
+                                # Yuvarlama, milimetrik hataları tolere etmek için.
+                                x_starts.append(round(span["bbox"][0], -1))
+            
+            # Eğer sayfada hiç yazı yoksa (Taranmış PDF), direkt Vision.
+            if not x_starts:
+                return True, "Metin Bulunamadı (Resim PDF)"
 
-            # --- KRİTER 2: IZGARA (GRID) ANALİZİ ---
-            # Sadece çizgi saymak yetmez, yönlerine bakacağız.
-            drawings = page.get_drawings()
-            horizontal_lines = 0
-            vertical_lines = 0
+            # --- ANALİZ ---
+            # X koordinatlarının frekansını say.
+            # Örn: {50: 100 satır, 70: 5 satır} -> Düz metin
+            # Örn: {50: 20 satır, 150: 20 satır, 300: 20 satır} -> TABLO!
+            counter = collections.Counter(x_starts)
             
-            for d in drawings:
-                # 'rect' (kutu) veya 'line' (çizgi) olabilir.
-                # Çizginin boyuna bakarak "süs" mü "yapı" mı olduğunu anlarız.
-                rect = d['rect']
-                width = rect.width
-                height = rect.height
-                
-                # Yatay Çizgi: Genişliği yüksek, yüksekliği az
-                if width > 100 and height < 5:
-                    horizontal_lines += 1
-                
-                # Dikey Çizgi: Yüksekliği fazla, genişliği az
-                if height > 50 and width < 5:
-                    vertical_lines += 1
+            # En sık tekrar eden 5 hizalamayı al
+            most_common_alignments = counter.most_common(5)
             
-            # KARAR ANI:
-            # Yönetmelik Çerçevesi: 2 Yatay + 2 Dikey çizgi olur.
-            # Gerçek Tablo: Satır sayısı kadar Yatay (>5), Sütun sayısı kadar Dikey (>2) olur.
-            if horizontal_lines > 5 and vertical_lines > 2:
-                return True, f"Tablo Izgarası Tespit Edildi ({horizontal_lines} Yatay, {vertical_lines} Dikey Çizgi)"
-        
-        # Eğer yukarıdaki şartları sağlamıyorsa, çerçeveli bile olsa standart metindir.
-        return False, "Standart Yapı (Izgara veya Parçalanma Yok)"
+            # Eşik Değer: Eğer en az 3 farklı sütun (başlangıç noktası) 
+            # belirgin bir şekilde kullanılmışsa (örn: her biri en az 5 kez), bu bir tablodur.
+            significant_columns = 0
+            for x_pos, count in most_common_alignments:
+                if count >= 5: # Sayfada o hizada en az 5 satır varsa "Sütun" say.
+                    significant_columns += 1
+            
+            # KARAR: 3 veya daha fazla belirgin sütun varsa VISION AÇ.
+            if significant_columns >= 3:
+                return True, f"Çoklu Sütun Yapısı ({significant_columns} aktif sütun)"
+                
+            # --- YEDEK KELİME KONTROLÜ (GARANTİ OLSUN) ---
+            # Sadece 'Q1' gibi çok nadir kelimeler için bir arka kapı bırakıyoruz.
+            # Bu, algoritma sütunu kaçırırsa devreye girer.
+            text_plain = page.get_text().lower()
+            if "q1" in text_plain and "çeyreklik" in text_plain:
+                return True, "Akademik Terim (Q1) Tespit Edildi"
+
+        return False, "Tek Sütunlu Metin (Standart)"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
         return False, "Analiz Hatası -> Standart Mod"
 
-# --- 3. VISION OKUMA (SESSİZ VE GÜÇLÜ) ---
+# --- 3. VISION OKUMA (SESSİZ VE GÜVENLİ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -106,7 +114,6 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
-            # Prompt: Yapısal bütünlüğü koru
             prompt = """
             GÖREV: Bu belgeyi analiz et.
             1. Eğer sayfada TABLO varsa, tabloyu bozmadan Markdown formatına çevir.
@@ -125,6 +132,7 @@ def pdf_image_to_text_with_gemini(file_path):
                 else:
                     raise ValueError("Boş Cevap")
             except Exception:
+                # Sessizce yedeğe geç
                 print(f"Sayfa {page_num+1} Vision okuyamadı, standart moda geçildi.")
                 extracted_text += page.get_text()
 
@@ -155,7 +163,6 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             # --- DEDEKTİF KARARI ---
             is_complex, reason = analyze_pdf_complexity(file_path)
             
-            # EKRAN BİLDİRİMLERİ (DEBUG)
             if is_complex:
                 st.warning(f"🟠 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
@@ -229,7 +236,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- DİĞERLERİ AYNI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
