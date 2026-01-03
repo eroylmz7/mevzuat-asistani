@@ -18,65 +18,66 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. GARANTİCİ DEDEKTİF 🕵️‍♂️ ---
+# --- 2. YAPISAL İSKELET ANALİZİ (STRUKTÜREL DEDEKTİF) 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    1. Akademik kelime arar.
-    2. Metin okunabiliyor mu diye bakar. Okunmuyorsa Vision açar.
+    Kelimelere veya çizgilere bakmaz.
+    Metin bloklarının sayfadaki DAĞILIMINA bakar.
+    Aynı satırda çok fazla ayrı blok varsa (Sütun yapısı), Vision açar.
     """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
         pages_to_check = min(len(doc), 3)
-        total_text_len = 0
-        all_text = ""
-
+        
         for i in range(pages_to_check):
             page = doc[i]
-            text = page.get_text().lower()
-            total_text_len += len(text)
-            all_text += text
             
-            # --- KURAL 1: PARMAK İZİ KELİMELER ---
-            academic_keywords = [
-                "q1", "q2", "q3", "ssci", "sci-exp", "ahci", "scopus", 
-                "yöksis", "doi", "çeyreklik", "quartile", "impact factor",
-                "doktora", "yüksek lisans", "yayın şartı", "akts", "kredi"
-            ]
+            # Sayfadaki tüm metin bloklarını ve koordinatlarını al
+            # flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE
+            blocks = page.get_text("blocks") 
             
-            found = [kw for kw in academic_keywords if kw in text]
-            if found:
-                return True, f"Kritik Kelime Bulundu: '{found[0]}'"
+            # Blok formatı: (x0, y0, x1, y1, "text", block_no, block_type)
+            
+            # 1. Satır Analizi (Y-koordinatına göre gruplama)
+            rows = {}
+            for b in blocks:
+                # Sadece metin bloklarını al (Resim vb. hariç)
+                if b[6] == 0: 
+                    y_center = round((b[1] + b[3]) / 2, -1) # Y eksenini yuvarla (Hizalama toleransı için)
+                    if y_center not in rows:
+                        rows[y_center] = []
+                    rows[y_center].append(b)
+            
+            # 2. Karmaşık Satır Sayımı
+            # Bir satırda 3 veya daha fazla ayrı metin bloğu varsa, o satır "Tablo Satırı"dır.
+            complex_row_count = 0
+            for y, row_blocks in rows.items():
+                if len(row_blocks) >= 3:
+                    complex_row_count += 1
+            
+            # Eşik Değer: Eğer sayfada 5'ten fazla tablo satırı varsa, bu bir tablodur.
+            # Lisans yönetmeliğinde satırlar tek parça olduğu için bu sayı 0-1 çıkar.
+            # Tez yayın şartında ise her satırda en az 3 blok (Derece | Şart | Belge) olduğu için yüksek çıkar.
+            if complex_row_count >= 5:
+                return True, f"Yoğun Sütun Yapısı Tespit Edildi ({complex_row_count} adet çoklu satır)"
 
-        # --- KURAL 2: METİN YOKSA VEYA AZSA (TARANMIŞ PDF) ---
-        # 3 sayfada toplam 200 karakterden az yazı varsa, bu dosya resimdir.
-        if total_text_len < 200:
-            return True, "Metin Okunamadı (Resim PDF)"
-
-        # --- KURAL 3: BOZUK KARAKTER KONTROLÜ ---
-        # Metin var ama 've', 'bir', 'ile' gibi kelimeler yoksa encoding bozuktur.
-        turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " veya "]
-        hits = sum(1 for w in turkish_anchors if w in all_text)
-        
-        # Eğer yeterince yazı var ama hiç bağlaç yoksa, karakterler bozuktur.
-        if total_text_len > 500 and hits == 0:
-            return True, "Bozuk Metin (OCR Gerekli)"
-
-        return False, "Standart Metin"
+        return False, "Standart Akış Metni"
         
     except Exception as e:
         print(f"Analiz Hatası: {e}")
-        return True, "Güvenli Mod (Hata)"
+        # Hata durumunda güvenli moda geçme, standart devam et
+        return False, "Analiz Hatası -> Standart Mod"
 
-# --- 3. VISION OKUMA (HİYERARŞİ VE HATA KORUMALI) ---
+# --- 3. VISION OKUMA (SESSİZ VE GÜVENLİ) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
     extracted_text = ""
     doc = fitz.open(file_path)
     
-    st.toast(f"👁️ Vision Aktif: {os.path.basename(file_path)}", icon="📸")
+    st.toast(f"👁️ VISION MODU: {os.path.basename(file_path)}", icon="📸")
     
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
@@ -96,12 +97,11 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
-            # PROMPT
             prompt = """
             GÖREV: Bu belgeyi analiz et.
-            1. Tablodaki her satıra "DOKTORA" veya "YÜKSEK LİSANS" başlığını ekle.
-            2. Dipnotları ilgili maddeyle birleştir.
-            3. Markdown tablosu olarak ver.
+            1. Eğer bir TABLO varsa, satır ve sütun ilişkisini bozmadan Markdown formatına çevir.
+            2. Tablodaki her maddenin başına ilgili ana başlığı (Örn: "DOKTORA") ekle.
+            3. Dipnotları metinle ilişkilendir.
             """
             
             response = model.generate_content(
@@ -119,7 +119,7 @@ def pdf_image_to_text_with_gemini(file_path):
                 extracted_text += page.get_text()
 
         except Exception as e:
-            print(f"Vision API Hatası: {e}")
+            print(f"API Hatası: {e}")
             extracted_text += page.get_text()
             
     return extracted_text
@@ -148,7 +148,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             if is_complex:
                 st.warning(f"🟠 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
-                st.success(f"🟢 Hızlı Mod: {uploaded_file.name}\nSebep: Standart Metin")
+                st.success(f"🟢 Hızlı Mod: {uploaded_file.name}\nSebep: {reason}")
             
             should_use_vision = use_vision_mode or is_complex
             
@@ -218,7 +218,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR AYNI ---
+# --- DİĞERLERİ AYNI ---
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
