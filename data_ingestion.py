@@ -27,7 +27,6 @@ def analyze_pdf_complexity(file_path):
         pages_to_check = min(len(doc), 3)
         for i in range(pages_to_check):
             page = doc[i]
-            
             drawings = page.get_drawings()
             if len(drawings) > 20:
                 return True, f"Sayfa {i+1}'de Yoğun Tablo ({len(drawings)} çizgi)"
@@ -38,13 +37,11 @@ def analyze_pdf_complexity(file_path):
                 match_count = sum(1 for word in turkish_anchors if word in text)
                 if match_count == 0:
                     return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası"
-                    
         return False, "Düz Metin"
     except Exception as e:
-        print(f"Analiz Hatası: {e}")
         return True, "Analiz Edilemedi (Güvenli Mod)"
 
-# --- 3. VISION OKUMA (FİLTRELER KAPALI 🔥) ---
+# --- 3. VISION OKUMA (AKILLI HİBRİT MOD 🔥) ---
 def pdf_image_to_text_with_gemini(file_path):
     configure_gemini()
     target_model = 'gemini-2.5-flash'
@@ -52,8 +49,7 @@ def pdf_image_to_text_with_gemini(file_path):
     doc = fitz.open(file_path)
     total_pages = len(doc)
     
-    # 🔥 GÜVENLİK AYARLARI (BLOCK_NONE)
-    # Bu ayarlar Gemini'nin "Bu içerik güvensiz olabilir" deyip susmasını engeller.
+    # FİLTRELER KAPALI (Önemli!)
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -63,7 +59,7 @@ def pdf_image_to_text_with_gemini(file_path):
 
     for page_num, page in enumerate(doc):
         if page_num == 0:
-            st.toast(f"🚀 {target_model} ile tarama başladı... Sayfa 1/{total_pages}", icon="🤖")
+            st.toast(f"🚀 {target_model} ile Akıllı Tarama... Sayfa 1/{total_pages}", icon="🧠")
             
         pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
@@ -75,29 +71,33 @@ def pdf_image_to_text_with_gemini(file_path):
 
             model = genai.GenerativeModel(target_model)
             
-            # safety_settings parametresini buraya ekledik!
+            # 🔥 PROMPT GÜNCELLEMESİ: TABLOYU ANLAT + ÇİZ
             response = model.generate_content(
                 [
                     """
-                    GÖREV: Bu görseldeki belgeyi analiz et.
-                    1. Tablo yapısını Markdown formatında koru.
-                    2. Türkçe karakterleri düzelt.
-                    3. Sadece metni ver.
+                    GÖREV: Bu belgeyi (özellikle tabloları) analiz et.
+                    
+                    ÖNEMLİ STRATEJİ:
+                    1. Önce tabloda gördüğün kuralları "Madde Madde Cümleler" halinde yaz. 
+                       (Örnek: "Doktora mezuniyeti için Q1 sınıfı dergide yayın şarttır.")
+                       Bu çok önemli çünkü arama yaparken tablo yapısı bozulabilir.
+                    
+                    2. Ardından tablonun orijinal yapısını Markdown formatında ver.
+                    
+                    3. Türkçe karakterleri düzelt.
                     """, 
                     {"mime_type": "image/jpeg", "data": image_bytes}
                 ],
-                safety_settings=safety_settings  # 🔥 FİLTRELERİ KAPATAN KOD
+                safety_settings=safety_settings
             )
             
             if response.text:
                 extracted_text += f"\n--- Sayfa {page_num + 1} ---\n{response.text}\n"
             else:
-                # Eğer yine de boş dönerse (çok nadir), hata verme, eski usül oku.
                 extracted_text += page.get_text()
                 
         except Exception as e:
-            # Hata olsa bile kullanıcıyı korkutma, sessizce yedeğe geç.
-            print(f"Gemini Vision Hatası (Sayfa {page_num+1}): {e}")
+            # Hata durumunda sessizce metin moduna geç
             extracted_text += page.get_text()
             
     return extracted_text
@@ -120,6 +120,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             file_path = os.path.join("temp_pdfs", uploaded_file.name)
             with open(file_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
+            # Storage Yükleme
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -129,8 +130,12 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 )
             except: pass
 
+            # --- ZORUNLU VISION KONTROLÜ ---
             is_complex, reason = analyze_pdf_complexity(file_path)
+            
+            # "tezyayin" dosyasını görünce AFFETME, direkt Vision aç.
             force_vision = "tezyayin" in uploaded_file.name.lower()
+            
             should_use_vision = use_vision_mode or is_complex or force_vision
             
             full_text = ""
@@ -141,9 +146,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 doc = fitz.open(file_path)
                 for page in doc: full_text += page.get_text()
 
-            # Boş içerik kontrolü (Hata durumunda)
+            # Vision boş dönerse yedek plan
             if not full_text.strip():
-                 # Vision başarısız olduysa son çare olarak PyMuPDF ile tekrar dene
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
 
@@ -153,14 +157,15 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 metadata={"source": uploaded_file.name}
             )
             
+            # Chunking (Parçalama)
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000, 
-                chunk_overlap=200,
-                separators=["\n|", "\nMADDE", "\n###", "\n\n", "\n", ". ", " "]
+                chunk_size=1200, 
+                chunk_overlap=250,
+                separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # Pinecone Boyut Kontrolü (Hata Önleyici)
+            # Pinecone Boyut Kontrolü
             safe_docs = []
             for doc in split_docs:
                 text_size = len(doc.page_content.encode('utf-8'))
@@ -183,7 +188,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
     if all_documents:
-        # 🔥 ÖNEMLİ: sentence-transformers sürümüne dikkat (CPU Modu)
+        # CPU Modunda Embedding
         embedding_model = HuggingFaceEmbeddings(
             model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
             model_kwargs={'device': 'cpu'}
@@ -197,7 +202,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- DİĞER FONKSİYONLAR ---
+# Diğer fonksiyonlar aynı...
 def delete_document_cloud(file_name):
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
