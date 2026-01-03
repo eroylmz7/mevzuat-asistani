@@ -18,49 +18,76 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. DEDEKTİF (İÇERİK ANALİZİ - YAPAY ZEKA KARAR MEKANİZMASI) ---
+# --- 2. GELİŞMİŞ DEDEKTİF (GENEL AMAÇLI VE ALAN TANIMLI) 🕵️‍♂️ ---
 def analyze_pdf_complexity(file_path):
     """
-    Bu fonksiyon dosyayı açar ve karmaşıklığını analiz eder.
-    Dosya adına bakmaz, tamamen içeriğe odaklanır.
+    Belgenin "Basit Metin" mi yoksa "Karmaşık Yapı/Tablo" mu olduğunu analiz eder.
+    Dosya ismine bakmaz. İçerikteki yapısal ve terminolojik ipuçlarını kullanır.
     """
     try:
         doc = fitz.open(file_path)
         if len(doc) == 0: return False, "Boş Dosya"
         
-        # Analiz için ilk 3 sayfaya bakmak performans/başarı dengesi için idealdir.
+        # Analiz için ilk 3 sayfa yeterlidir (Genelde kapak ve içindekiler sonrası yapı belli olur)
         pages_to_check = min(len(doc), 3)
         
+        complexity_score = 0
+        reasons = []
+
         for i in range(pages_to_check):
             page = doc[i]
-            
-            # KRİTER 1: TABLO YOĞUNLUĞU (GEOMETRİK ANALİZ)
-            # Sayfadaki vektör çizimlerini (tablo kenarlıkları, çizgiler) sayar.
-            drawings = page.get_drawings()
-            # Eşik Değeri: 15. Normal bir metin sayfasında 0-5 arası çizgi olur.
-            # 15'ten fazla çizgi varsa, burası kesinlikle tablodur.
-            if len(drawings) > 15:
-                return True, f"Sayfa {i+1}'de Yoğun Tablo Yapısı Tespit Edildi ({len(drawings)} vektör çizimi)"
-            
-            # KRİTER 2: METİN KALİTESİ (SEMANTİK ANALİZ)
-            # PyMuPDF ile metni çekip, Türkçe karakterlerin bozuk olup olmadığına bakar.
             text = page.get_text().lower()
-            if len(text) > 50:
-                # Bu kelimeler Türkçe metinlerde istatistiksel olarak en sık geçen bağlaçlardır.
-                # Eğer metin "sürdOrdÖğü" gibi bozuksa, bu kelimeler bulunamaz.
-                turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu ", " madde ", " üniversite ", " olan "]
-                match_count = sum(1 for word in turkish_anchors if word in text)
-                
-                # Hiç bağlaç yoksa, metin encoding hatası (bozuk karakter) içeriyor demektir.
-                if match_count == 0:
-                    return True, f"Sayfa {i+1}'de Bozuk Metin/Encoding Hatası Tespit Edildi"
-                    
+            
+            # --- GRUP 1: AKADEMİK VE TEKNİK TABLO GÖSTERGELERİ (Yüksek Puan) ---
+            # Bu terimler, belgenin yoğun veri içeren bir akademik tablo olduğunu gösterir.
+            # Sadece Uludağ Üni değil, ODTÜ, İTÜ veya YÖK belgelerinde de ortaktır.
+            academic_indicators = [
+                "ssci", "sci-exp", "ahci", "scopus", "ulakbim", "tr dizin",  # İndeksler
+                "doi", "isbn", "issn",  # Tanımlayıcılar
+                "q1", "q2", "q3", "q4", "quartile", "çeyreklik",  # Sınıflandırma
+                "puan", "ats", "akts", "kredi"  # Sayısal Değerler
+            ]
+            
+            hit_academic = sum(1 for kw in academic_indicators if kw in text)
+            if hit_academic > 0:
+                complexity_score += 2
+                reasons.append("Akademik/Teknik Terim Yoğunluğu")
+
+            # --- GRUP 2: YAPISAL GÖSTERGELER (Orta Puan) ---
+            # Herhangi bir yönetmelik veya yönergede tablo yapısını işaret eder.
+            structural_indicators = [
+                "tablo", "çizelge", "şekil", "grafik", "ek-1", "ek-2", 
+                "sütun", "satır", "kriter", "koşul", "şartlar", "kategoriler"
+            ]
+            
+            hit_structural = sum(1 for kw in structural_indicators if kw in text)
+            if hit_structural > 0:
+                complexity_score += 1
+                reasons.append("Yapısal Anahtar Kelimeler")
+
+            # --- GRUP 3: GEOMETRİK ANALİZ (Vektör Çizimleri) ---
+            # Tablo kenarlıkları, kutucuklar vb.
+            drawings = page.get_drawings()
+            if len(drawings) > 10: 
+                complexity_score += 2
+                reasons.append(f"Vektör/Tablo Çizimi ({len(drawings)} adet)")
+
+            # --- GRUP 4: BOZUK METİN KONTROLÜ (Encoding) ---
+            turkish_anchors = [" ve ", " bir ", " ile ", " için ", " bu "]
+            if len(text) > 50 and sum(1 for w in turkish_anchors if w in text) == 0:
+                return True, "OCR/Encoding Hatası (Metin Okunamadı)"
+
+        # KARAR MEKANİZMASI:
+        # Toplam skor 3'ü geçerse Vision Modu devreye girer.
+        if complexity_score >= 3:
+            unique_reasons = list(set(reasons))
+            return True, f"Karmaşık Yapı Tespit Edildi (Skor: {complexity_score}). Sebepler: {', '.join(unique_reasons)}"
+            
         return False, "Standart Metin Yapısı"
         
     except Exception as e:
-        # Analiz sırasında hata olursa, risk almayıp güvenli moda (Vision) geçmek en doğrusudur.
         print(f"Analiz Hatası: {e}")
-        return True, "Otomatik Analiz Tamamlanamadı (Güvenli Mod)"
+        return True, "Güvenli Mod (Analiz Hatası)"
 
 # --- 3. VISION OKUMA (AKILLI HİBRİT MOD) ---
 def pdf_image_to_text_with_gemini(file_path):
