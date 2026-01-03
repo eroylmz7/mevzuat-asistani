@@ -202,22 +202,51 @@ with st.sidebar:
         
         st.divider()
         
-        # Dosya Yönetimi
+       # Dosya Yönetimi
         st.subheader("📁 Veri Yönetimi")
         
-        uploaded_files = st.file_uploader("PDF Yükle", accept_multiple_files=True, type=['pdf'])
+        # --- 1. UPLOADER KEY (Dosya kutusunu temizlemek için sayaç) ---
+        if "uploader_key" not in st.session_state:
+            st.session_state.uploader_key = 0
+
+        # --- 2. DOSYA YÜKLEME (Dynamic Key eklendi) ---
+        uploaded_files = st.file_uploader(
+            "PDF Yükle", 
+            accept_multiple_files=True, 
+            type=['pdf'],
+            key=f"uploader_{st.session_state.uploader_key}" # Bu key değişince kutu sıfırlanır
+        )
         
+        # --- 3. VISION MODU SEÇENEĞİ (Checkbox) ---
+        ai_vision_mode = st.checkbox(
+            "👁️ Yapay Zeka Gözü ile Oku (Tablolu/Zor belgeler için)",
+            help="İşaretlenirse veya dosya adı şüpheliyse Gemini Vision kullanılır."
+        )
+        
+        # --- 4. İŞLEME BUTONU ---
         if st.button("Veritabanına Belge Ekle", type="primary"):
             if uploaded_files:
                 durum = st.status("Sistem güncelleniyor...", expanded=True)
-                st.session_state.vector_db = process_pdfs(uploaded_files)
+                
+                # Fonksiyona Vision tercihini gönderiyoruz
+                st.session_state.vector_db = process_pdfs(uploaded_files, use_vision_mode=ai_vision_mode)
+                
                 durum.update(label="✅ Belgeler Eklendi!", state="complete")
-                st.rerun()
+                
+                st.toast("İşlem tamamlandı, liste yenileniyor...", icon="🎉")
+                
+                # --- 5. TEMİZLİK VE YENİLEME ---
+                st.session_state.uploader_key += 1 # Sayacı arttır (Kutu temizlenir)
+                import time
+                time.sleep(1) # Kullanıcı mesajı görsün diye minik bekleme
+                st.rerun()    # Sayfayı yenile
+            else:
+                st.warning("Lütfen önce bir dosya seçin.")
         
         st.markdown("<br>", unsafe_allow_html=True)
         st.caption("📚 SİSTEMDEKİ BELGELER (YÖNET)")
         
-        # --- ADMİN İÇİN DOSYA LİSTESİ (GÖRÜNTÜLEME + SİLME) ---
+        # --- ADMİN İÇİN DOSYA LİSTESİ (BURASI AYNI KALIYOR) ---
         try:
             docs = supabase.table("dokumanlar").select("*").execute()
             
