@@ -119,10 +119,13 @@ def pdf_image_to_text_with_gemini(file_path):
             model = genai.GenerativeModel(target_model)
             
             prompt = """
-            GÖREV: Bu belgeyi analiz et.
+            GÖREV: Bu akademik belgeyi analiz et.
             1. Eğer sayfada TABLO varsa, tabloyu bozmadan Markdown formatına çevir.
             2. Tablodaki her satırın başına, o satırın ait olduğu ana başlığı (Örn: "DOKTORA") ekle.
-            3. Dipnotları metinle birleştir.
+            3. **KRİTİK - TABLO ALTI NOTLAR:** Tablonun hemen altında veya sayfanın en altında yer alan cümlelere DİKKAT ET.
+               - Özellikle **"...karar verir"**, **"...yetkilidir"**, **"...Kurulu"** gibi ifadeler içeren cümleleri ASLA ATLAMA.
+               - Bu cümleleri **"GENEL HÜKÜM: [Cümle]"** formatında metnin en başına ekle.
+               
             """
             
             response = model.generate_content(
