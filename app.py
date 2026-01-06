@@ -395,6 +395,7 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                                 <div style="margin-top: 10px;">
                             '''
                             for src in sources:
+                                clean_src = src.split(" (Sayfa")[0]
                                 sources_html += f'<div class="source-item" style="margin-bottom: 5px; font-size: 0.9em;">📄 {src}</div>'
                             sources_html += '</div></details>'
                         
