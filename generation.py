@@ -128,7 +128,7 @@ def generate_answer(question, vector_store, chat_history):
     - Soru "Personel/İdari" ise -> Akademik öğrenci kurallarını GÖRMEZDEN GEL.
     - Belgelerin bazıları TABLO formatındadır. Satır ve sütunların kaymış olabileceğini unutma.
     
-    KURAL 4: HALÜSİNASYON ENGELLEME 🚫
+    KURAL 4: HALÜSİNASYON ENGELLEME 
     - Belgede açıkça yazmıyorsa "Belgelerde bu bilgi bulunmamaktadır" de.
     - Tahmin yürütme, yorum yapma. Sadece metinde yazanı aktar.
     

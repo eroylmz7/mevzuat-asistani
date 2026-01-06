@@ -24,7 +24,7 @@ def analyze_pdf_complexity(file_path):
     """
     Belgedeki metinlerin sol hizalamasına (X koordinatına) bakar.
     Yönetmelik girintilerini (indentation) tablo sütunu sanmaması için
-    daha akıllı bir yoğunluk kontrolü yapar.
+    daha akıllı bir yoğunluk kontrolü yapar..
     """
     try:
         doc = fitz.open(file_path)
@@ -196,8 +196,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500, 
-                chunk_overlap=300,
+                chunk_size=2000, 
+                chunk_overlap=500,
                 separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
