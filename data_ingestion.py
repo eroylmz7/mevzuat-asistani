@@ -254,19 +254,35 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
 
 # --- DİĞERLERİ AYNI ---
 def delete_document_cloud(file_name):
+    # 1. Pinecone Temizliği (Hata Verirse Yutacağız)
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
         index_name = "mevzuat-asistani"
         pc = Pinecone(api_key=pinecone_api_key)
         index = pc.Index(index_name)
+        
+        # Pinecone'dan silmeyi dene
         index.delete(filter={"source": file_name})
-        try:
-            supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
-            supabase.table("dokumanlar").delete().eq("dosya_adi", file_name).execute()
-            supabase.storage.from_("belgeler").remove([file_name])
-        except Exception as e: print(f"Supabase silme hatası: {e}")
-        return True, f"{file_name} başarıyla silindi."
-    except Exception as e: return False, f"Hata: {str(e)}"
+        
+    except Exception as e:
+        # Hata verirse (404 vs.) konsola yaz ama işlemi DURDURMA.
+        # Çünkü amaç zaten dosyadan kurtulmak.
+        print(f"Pinecone silme uyarısı (Önemsiz): {e}")
+
+    # 2. Supabase ve Storage Temizliği (Asıl Kritik Kısım)
+    try:
+        supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+        
+        # Veritabanı kaydını sil
+        supabase.table("dokumanlar").delete().eq("dosya_adi", file_name).execute()
+        
+        # Dosyanın kendisini storage'dan sil
+        supabase.storage.from_("belgeler").remove([file_name])
+        
+        return True, f"{file_name} başarıyla temizlendi."
+        
+    except Exception as e: 
+        return False, f"Supabase silme hatası: {str(e)}"
 
 def connect_to_existing_index():
     try:
