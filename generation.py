@@ -45,9 +45,9 @@ def generate_answer(question, vector_store, chat_history):
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
-            k=20,             
-            fetch_k=100,      
-            lambda_mult=0.75  
+            k=15,             
+            fetch_k=150,      
+            lambda_mult=0.7  
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
