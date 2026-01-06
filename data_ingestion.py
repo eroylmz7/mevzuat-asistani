@@ -21,7 +21,7 @@ def configure_gemini():
     else:
         st.error("Google API Key bulunamadı!")
 
-# --- 2. SÜTUN HİZALAMA ANALİZİ (GELİŞMİŞ MÜHENDİSLİK ÇÖZÜMÜ) 📐 ---
+# --- 2. SÜTUN HİZALAMA ANALİZİ  ---
 def analyze_pdf_complexity(file_path):
     """
     Belgedeki metinlerin sol hizalamasına (X koordinatına) bakar.
@@ -49,8 +49,6 @@ def analyze_pdf_complexity(file_path):
                             # Çok kısa yazıları (Madde no, a), b) gibi) ve boşlukları atla.
                             # Çünkü bunlar "Sütun" değil, "Madde İşaretidir".
                             if len(span["text"].strip()) > 5:
-                                # X koordinatını al ve DAHA GENİŞ yuvarla (Örn: 20px tolerans)
-                                # Bu sayede küçük girintiler (indent) ana metinle birleşir.
                                 x_starts.append(round(span["bbox"][0] / 20) * 20)
             
             # Eğer sayfada hiç anlamlı yazı yoksa (Taranmış PDF), direkt Vision.
@@ -152,7 +150,7 @@ def pdf_image_to_text_with_gemini(file_path):
     return extracted_text
 
 # --- 4. ANA İŞLEME FONKSİYONU ---
-# --- 4. ANA İŞLEME FONKSİYONU (GÜNCELLENDİ: BATCH UPLOAD) ---
+
 def process_pdfs(uploaded_files, use_vision_mode=False):
     try:
         supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])

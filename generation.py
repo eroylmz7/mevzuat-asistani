@@ -40,15 +40,33 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. RETRIEVAL (AYAR GÜNCELLEMESİ) ---
+    --- 3. RETRIEVAL (AKILLI ARAMA AYARI) ---
     try:
-       
-        docs = vector_store.max_marginal_relevance_search(
-            hybrid_query, 
-            k=25,            # DÜŞÜRÜLDÜ (Dikkati dağılmaması için)
-            fetch_k=100,     # AYNI KALDI (Geniş tarasın)
-            lambda_mult=0.7  # Çeşitliliği arttırdım (Farklı belgelerden alsın)
-        )
+        # Sorunun içinde "mezuniyet", "koşul" veya "şart" geçiyor mu?
+        if any(keyword in hybrid_query.lower() for keyword in ["mezuniyet", "koşul", "şart", "nasıl mezun"]):
+            
+            # --- SENARYO 1: GENİŞ KAPSAMLI / SENTEZ SORULAR ---
+            # "Lisans Mezuniyet Şartları" gibi dağınık bilgileri toplamak için.
+            # Lambda 0.5 yaparak "Yüksek Lisans"ları baskılayıp araya "Lisans" sıkıştırıyoruz.
+            docs = vector_store.max_marginal_relevance_search(
+                hybrid_query,
+                k=12,             # Sentez yapması için eline biraz fazla malzeme verelim.
+                fetch_k=100,      # Ağı 100 belgeye kadar atalım ki Lisans maddesi kaçmasın.
+                lambda_mult=0.5   # KRİTİK: Çeşitliliği artır (Benzerleri ele, farklıları getir).
+            )
+            print("🚀 Mod: GENİŞ TARAMA (Mezuniyet/Şartlar)")
+
+        else:
+            # --- SENARYO 2: NOKTA ATIŞI SORULAR ---
+            # "Tez süresi ne kadar?" gibi tek cevaplık sorular için.
+            docs = vector_store.max_marginal_relevance_search(
+                hybrid_query,
+                k=6,              # Az ve öz belge yeterli, kafası karışmasın.
+                fetch_k=50,       # Standart havuz.
+                lambda_mult=0.8   # Alaka düzeyi yüksek olsun.
+            )
+            print("🎯 Mod: NOKTA ATIŞI")
+
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
