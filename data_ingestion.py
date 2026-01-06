@@ -1,3 +1,4 @@
+import time
 import os
 import fitz  # PyMuPDF
 import streamlit as st
@@ -6,7 +7,8 @@ import google.generativeai as genai
 from langchain_pinecone import PineconeVectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
-from langchain_community.embeddings import HuggingFaceEmbeddings
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from supabase import create_client
 from pinecone import Pinecone
 import io
@@ -202,8 +204,15 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
+            # ---  (GenerativeAI Embedding sistemi için FREN SİSTEMİ) ---
             safe_docs = []
-            for doc in split_docs:
+            for i, doc in enumerate(split_docs):
+                # Google kotasını (dakikada 60 istek) aşmamak için minik fren
+                # Her 20 parçada bir 1 saniye nefes al
+                if i % 20 == 0: 
+                    time.sleep(1)
+                
+                # Karakter limiti kontrolü (Zaten vardı, koruyoruz)
                 text_size = len(doc.page_content.encode('utf-8'))
                 if text_size < 38000:
                     safe_docs.append(doc)
@@ -230,9 +239,9 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
     if all_documents:
-        embedding_model = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            model_kwargs={'device': 'cpu'}
+        embedding_model = GoogleGenerativeAIEmbeddings(
+            model_name="models/embedding-001",
+            google_api_key=st.secrets["GOOGLE_API_KEY"]
         )
         vector_store = PineconeVectorStore.from_documents(
             documents=all_documents,
@@ -261,9 +270,9 @@ def delete_document_cloud(file_name):
 
 def connect_to_existing_index():
     try:
-        embedding_model = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-            model_kwargs={'device': 'cpu'}
+        embedding_model = GoogleGenerativeAIEmbeddings(
+            model_name="models/embedding-001",
+            google_api_key=st.secrets["GOOGLE_API_KEY"]
         )
         vector_store = PineconeVectorStore.from_existing_index(
             index_name="mevzuat-asistani",
