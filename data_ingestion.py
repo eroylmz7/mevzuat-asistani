@@ -152,6 +152,7 @@ def pdf_image_to_text_with_gemini(file_path):
     return extracted_text
 
 # --- 4. ANA İŞLEME FONKSİYONU ---
+# --- 4. ANA İŞLEME FONKSİYONU (GÜNCELLENDİ: BATCH UPLOAD) ---
 def process_pdfs(uploaded_files, use_vision_mode=False):
     try:
         supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -198,32 +199,18 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1200, 
+                chunk_size=1000, 
                 chunk_overlap=200,
                 separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # ---  (GenerativeAI Embedding sistemi için FREN SİSTEMİ) ---
-            safe_docs = []
-            for i, doc in enumerate(split_docs):
-                # Google kotasını (dakikada 60 istek) aşmamak için minik fren
-                # Her 20 parçada bir 1 saniye nefes al
-                if i % 20 == 0: 
-                    time.sleep(1)
-                
-                # Karakter limiti kontrolü (Zaten vardı, koruyoruz)
-                text_size = len(doc.page_content.encode('utf-8'))
-                if text_size < 38000:
-                    safe_docs.append(doc)
-                else:
-                    doc.page_content = doc.page_content[:15000] + "\n...(Kısaltıldı)"
-                    safe_docs.append(doc)
-            
-            all_documents.extend(safe_docs)
+            # Belgeleri ana listeye ekle (Burada uyumaya gerek yok)
+            all_documents.extend(split_docs)
             
             if os.path.exists(file_path): os.remove(file_path)
             
+            # Supabase işlemleri...
             try:
                 uploaded_file.seek(0)
                 file_bytes = uploaded_file.read()
@@ -239,16 +226,50 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
     if all_documents:
-        embedding_model = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            google_api_key=st.secrets["GOOGLE_API_KEY"]
-        )
-        vector_store = PineconeVectorStore.from_documents(
-            documents=all_documents,
-            embedding=embedding_model,
-            index_name="mevzuat-asistani"
-        )
-        return vector_store
+        try:
+            st.info(f"🚀 Toplam {len(all_documents)} parça Google sunucularına parça parça işleniyor...")
+            
+            # 1. Önce Modeli ve Vektör Store'u Hazırla (Boş Olarak)
+            embedding_model = GoogleGenerativeAIEmbeddings(
+                model="models/embedding-001",
+                google_api_key=st.secrets["GOOGLE_API_KEY"]
+            )
+            
+            # Pinecone bağlantısını kur
+            vector_store = PineconeVectorStore(
+                index_name="mevzuat-asistani",
+                embedding=embedding_model,
+                pinecone_api_key=st.secrets["PINECONE_API_KEY"]
+            )
+            
+            # 2. BATCH UPLOAD (VAGON SİSTEMİ) - İŞTE ÇÖZÜM BURADA 🛠️
+            # 100 parçayı aynı anda atmak yerine 10'ar 10'ar atıp dinleniyoruz.
+            batch_size = 10
+            total_batches = len(all_documents) // batch_size + 1
+            
+            progress_bar = st.progress(0)
+            
+            for i in range(0, len(all_documents), batch_size):
+                # 10 parçalık vagonu al
+                batch = all_documents[i : i + batch_size]
+                
+                if batch:
+                    # Vagonu Pinecone'a gönder
+                    vector_store.add_documents(batch)
+                    
+                    # İlerleme çubuğunu güncelle
+                    current_progress = min((i + batch_size) / len(all_documents), 1.0)
+                    progress_bar.progress(current_progress)
+                    
+                    # ⚠️ Google Kotası İçin Fren: Her vagondan sonra 2 saniye bekle
+                    time.sleep(2)
+            
+            st.success("✅ Tüm belgeler başarıyla vektörleştirildi!")
+            return vector_store
+            
+        except Exception as e:
+            st.error(f"Pinecone/Embedding Hatası: {str(e)}")
+            return None
     
     return None
 
