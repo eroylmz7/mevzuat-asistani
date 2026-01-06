@@ -42,13 +42,12 @@ def generate_answer(question, vector_store, chat_history):
 
     # --- 3. RETRIEVAL (AYAR GÜNCELLEMESİ) ---
     try:
-        # fetch_k=160 (Geniş tara) kalsın ama LLM'e gideni (k) düşürelim.
-        # k=80 çok fazlaydı, 35-40 idealdir.
+       
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query, 
-            k=25,            # DÜŞÜRÜLDÜ (Dikkati dağılmaması için)
-            fetch_k=100,     # AYNI KALDI (Geniş tarasın)
-            lambda_mult=0.7  # Çeşitliliği artırdık (Farklı belgelerden alsın)
+            k=15,            # DÜŞÜRÜLDÜ (Dikkati dağılmaması için)
+            fetch_k=50,     # AYNI KALDI (Geniş tarasın)
+            lambda_mult=0.7  # Çeşitliliği arttırdım (Farklı belgelerden alsın)
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
