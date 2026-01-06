@@ -40,33 +40,15 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    # --- 3. RETRIEVAL (AKILLI ARAMA AYARI) ---
+    # --- 3. RETRIEVAL (KARARLI MOD) ---
     try:
-        # Sorunun içinde "mezuniyet", "koşul" veya "şart" geçiyor mu?
-        if any(keyword in hybrid_query.lower() for keyword in ["mezuniyet", "koşul", "şart", "nasıl mezun"]):
-            
-            # --- SENARYO 1: GENİŞ KAPSAMLI / SENTEZ SORULAR ---
-            # "Lisans Mezuniyet Şartları" gibi dağınık bilgileri toplamak için.
-            # Lambda 0.5 yaparak "Yüksek Lisans"ları baskılayıp araya "Lisans" sıkıştırıyoruz.
-            docs = vector_store.max_marginal_relevance_search(
-                hybrid_query,
-                k=12,             # Sentez yapması için eline biraz fazla malzeme verelim.
-                fetch_k=100,      # Ağı 100 belgeye kadar atalım ki Lisans maddesi kaçmasın.
-                lambda_mult=0.5   # KRİTİK: Çeşitliliği artır (Benzerleri ele, farklıları getir).
-            )
-            print("🚀 Mod: GENİŞ TARAMA (Mezuniyet/Şartlar)")
-
-        else:
-            # --- SENARYO 2: NOKTA ATIŞI SORULAR ---
-            # "Tez süresi ne kadar?" gibi tek cevaplık sorular için.
-            docs = vector_store.max_marginal_relevance_search(
-                hybrid_query,
-                k=6,              # Az ve öz belge yeterli, kafası karışmasın.
-                fetch_k=50,       # Standart havuz.
-                lambda_mult=0.8   # Alaka düzeyi yüksek olsun.
-            )
-            print("🎯 Mod: NOKTA ATIŞI")
-
+        # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
+        docs = vector_store.max_marginal_relevance_search(
+            hybrid_query,
+            k=20,             
+            fetch_k=100,      
+            lambda_mult=0.75  
+        )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
@@ -143,8 +125,7 @@ def generate_answer(question, vector_store, chat_history):
     - Soru "Yüksek Lisans" ise -> "Doktora" başlıklarını GÖRMEZDEN GEL.
     - Soru "Doktora" ise -> "Yüksek Lisans" başlıklarını GÖRMEZDEN GEL.
     - Soru "Lisans" (Önlisans/Fakülte) ise -> "Lisansüstü" belgelerini GÖRMEZDEN GEL.
-    - Belgelerin bazıları TABLO formatındadır. Satır ve sütunların kaymış olabileceğini unutma.
-
+    
     KURAL 4: BİLGİ BİRLEŞTİRME VE SENTEZ
     - Kullanıcı "Mezuniyet şartları nelerdir?", "Yatay geçiş koşulları nelerdir?" gibi GENEL bir liste isterse:
     - Tek bir maddede "İşte liste budur" diye yazmayabilir.
