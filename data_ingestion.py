@@ -240,7 +240,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
 
     if all_documents:
         embedding_model = GoogleGenerativeAIEmbeddings(
-            model_name="models/embedding-001",
+            model="models/embedding-001",
             google_api_key=st.secrets["GOOGLE_API_KEY"]
         )
         vector_store = PineconeVectorStore.from_documents(
@@ -287,7 +287,7 @@ def delete_document_cloud(file_name):
 def connect_to_existing_index():
     try:
         embedding_model = GoogleGenerativeAIEmbeddings(
-            model_name="models/embedding-001",
+            model="models/embedding-001",
             google_api_key=st.secrets["GOOGLE_API_KEY"]
         )
         vector_store = PineconeVectorStore.from_existing_index(
