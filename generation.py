@@ -40,7 +40,7 @@ def generate_answer(question, vector_store, chat_history):
     except:
         hybrid_query = question 
 
-    --- 3. RETRIEVAL (AKILLI ARAMA AYARI) ---
+    # --- 3. RETRIEVAL (AKILLI ARAMA AYARI) ---
     try:
         # Sorunun içinde "mezuniyet", "koşul" veya "şart" geçiyor mu?
         if any(keyword in hybrid_query.lower() for keyword in ["mezuniyet", "koşul", "şart", "nasıl mezun"]):
