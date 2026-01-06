@@ -199,9 +199,19 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1000, 
-                chunk_overlap=200,
-                separators=["\n|", "\nMADDE", "\n###", "\n\n", ". "]
+                chunk_size=1024,     
+                chunk_overlap=300,    
+                
+                separators=[
+                    "\nMADDE",        # Önce Maddelere göre bölmeye çalışsın (En ideali)
+                    "\nGEÇİCİ MADDE", # Geçici maddeleri de yakalayalım
+                    "\n###",          # Başlıklar
+                    "\n\n",           # Paragraflar
+                    "\n",             # Satırlar
+                    ". ",             # Cümleler
+                    " ",              # Kelimeler
+                    ""                # Harfler (son çare)
+                ]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
