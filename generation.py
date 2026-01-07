@@ -17,29 +17,33 @@ def generate_answer(question, vector_store, chat_history):
         temperature=0.1 
     )
     
+
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için en kritik anahtar kelimeleri ekle.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motorunun en doğru belgeyi bulması için soruyu ZENGİNLEŞTİR.
     
-    
-    ANALİZ ADIMLARI:
-    1. KONU TESPİTİ:
-       - Akademik 1: "Tez", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
-       - Akademik 2: "Çap", "Yandal", "Yaz Okulu" -> "LİSANS EĞİTİMİ"
-       - İdari: "Rektör", "Personel", "İzin", "Teşkilat", "Atama" -> "İDARİ MEVZUAT"
-       - Disiplin: "Ceza", "Kopya", "Uzaklaştırma" -> "DİSİPLİN SUÇU"
-       
-    2. GÜNCELLİK VE DETAY:
-       - Soru "Yayın şartı", "Mezuniyet kriteri" içeriyorsa -> "Senato Kararı", "Yayın Esasları", "Ek Madde" terimlerini ekle.
-    
+    ANALİZ MANTIĞI:
+    1. EĞER SORU "LİSANSÜSTÜ" (Master/Doktora) İLE İLGİLİYSE:
+       - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK)
+       - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ", "LİSANSÜSTÜ UYGULAMA ESASLARI"
+
+    2. EĞER SORU "LİSANS/ÖNLİSANS" (Fakülte/MYO) İLE İLGİLİYSE:
+       - (İpuçları: ÇAP, Yandal, Staj, Yaz Okulu, Tek Ders, Bütünleme, DC, DD)
+       - EKLE: "ÖNLİSANS VE LİSANS EĞİTİM YÖNETMELİĞİ", "UYGULAMALI EĞİTİM YÖNERGESİ"
+
+    3. EĞER SORU ORTAK BİR KONUYSA (Mezuniyet, Kayıt, Sınav):
+       - Soru içinde "Lisans" geçiyorsa -> "LİSANS YÖNETMELİĞİ" ekle.
+       - Soru içinde "Yüksek Lisans/Doktora" geçiyorsa -> "LİSANSÜSTÜ YÖNETMELİĞİ" ekle.
+       - Hiçbiri yoksa -> "MEVZUAT" ekle.
+
     Soru: "{question}"
-    Geliştirilmiş Arama Sorgusu (Sadece terimler):
+    Sadece eklenecek anahtar kelimeleri yaz (Yorum yapma):
     """
     
-    #try:
-        #official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        #hybrid_query = f"{question} {official_terms}"
-    #except:
-    hybrid_query = question 
+    try:
+        official_terms = llm_translator.invoke(translation_prompt).content.strip()
+        hybrid_query = f"{question} {official_terms}"
+    except:
+        hybrid_query = question 
 
     # --- 3. RETRIEVAL (KARARLI MOD) ---
     try:
