@@ -31,8 +31,8 @@ def rerank_documents(query, docs, api_key):
 
     SEÇİM STRATEJİSİ (GENEL KURALLAR):
     1. Yüksek Lisans ve Lisans sorularındaki ayrıma dikkat et.
-    2. HİYERARŞİ: Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
-    3. SAYISAL EŞLEŞME: Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların geçtiği metinleri veya tabloları seç.
+    2. Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
+    3. Belge sorudaki anahtar kelimeleri veya sayısal verileri (AKTS, Puan, Yüzde) içeriyor mu? Buna dikkat et
     
     ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
@@ -49,7 +49,7 @@ def rerank_documents(query, docs, api_key):
     except:
         return docs[:5]
 
-# --- 2. ANA FONKSİYON (SADELEŞTİRİLDİ) ---
+# --- 2. ANA FONKSİYON ---
 def generate_answer(question, vector_store, chat_history):
     
     if "GOOGLE_API_KEY" in st.secrets:
@@ -57,20 +57,47 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
+    # ---  SORGU TEMİZLEYİCİ VE ÇEVİRİCİ 
+    try:
+        cleaner_llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", 
+            google_api_key=google_api_key,
+            temperature=0.0 # Yaratıcılık yok, sadece temizlik
+        )
+        
+        cleaning_prompt = f"""
+        GÖREV: Aşağıdaki kullanıcı sorusunu Vektör Veritabanı araması için optimize et.
+        
+        YAPILACAKLAR:
+        1. Gereksiz kelimeleri, parantez içlerini ve dolgu sözcüklerini sil (Örn: "Dönem içi", "acaba", "lütfen").
+        2. Öğrenci dilini Yönetmelik diline çevir (Örn: "Staj" -> "İşletmede Mesleki Eğitim / Staj").
+        3. Sadece temizlenmiş ve resmi anahtar kelimeleri yaz.
+        
+        Kullanıcı Sorusu: "{question}"
+        
+        Optimize Edilmiş Sorgu:
+        """
+        optimized_query = cleaner_llm.invoke(cleaning_prompt).content.strip()
+        
+        # Arama yaparken optimize edilmiş sorguyu kullanacağız!
+        # Ama cevap verirken orijinal soruyu (question) kullanacağız.
+        
+    except:
+        optimized_query = question # Hata olursa orijinali kullan
+
     # --- ADIM 1: GENİŞ ARAMA (RETRIEVAL) ---
     try:
-        # k=45 yapıyoruz. "Ağı" geniş atıyoruz ki o staj maddesi mutlaka takılsın.
         docs = vector_store.max_marginal_relevance_search(
-            question,
-            k=45,             # 45 Belge getir (Eskiden 20 idi, yetmiyordu)
-            fetch_k=200,      # 200 aday arasından seç
-            lambda_mult=0.5   # Çeşitliliği artır
+            optimized_query,  # <--- BURASI DEĞİŞTİ: Artık temiz sorguyu arıyoruz!
+            k=45,             
+            fetch_k=200,      
+            lambda_mult=0.5   
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
     # --- ADIM 2: RERANKING (ELEME) ---
-    # 45 belgeyi Gemini'ye verip "Bana en iyi 5-10 tanesini ver" diyoruz.
+    # Reranker'a orijinal soruyu veriyoruz ki bağlamı kaçırmasın.
     final_docs = rerank_documents(question, docs, google_api_key)
 
     # --- ADIM 3: FORMATLAMA ---
