@@ -107,18 +107,14 @@ def generate_answer(question, vector_store, chat_history):
 
     --- 🧠 CEVAPLAMA KURALLARI ---
 
-    KURAL 1: BELGE TÜRÜ VE HİYERARŞİSİ ⚖️
-    - "Uygulama Esasları", "Yönerge" veya "Senato Kararı" gibi belgeler, o konudaki ÖZEL detayları içerir. 
-    - Eğer "Yönetmelik" ile "Yönerge" arasında fark varsa, daha detaylı olan YÖNERGEYİ/ESASLARI baz al.
-    - Örneğin "Staj" sorusunda "Uygulamalı Eğitim Yönergesi" önceliklidir.
-
-    KURAL 2: SENTEZ VE BİRLEŞTİRME
+    
+    KURAL 1: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
 
-    KURAL 3: REFERANS
+    KURAL 2: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
 
-    KURAL 4: DÜRÜSTLÜK
+    KURAL 3: DÜRÜSTLÜK
     - Bilgi yoksa uydurma, "Belgelerde bulunmamaktadır" de.
 
     CEVAP:
