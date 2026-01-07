@@ -30,9 +30,9 @@ def rerank_documents(query, docs, api_key):
     {doc_text}
 
     SEÇİM STRATEJİSİ (GENEL KURALLAR):
-    1. Yüksek Lisans ve Lisans sorularındaki ayrıma dikkat et.
-    2. Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
-    3. Belge sorudaki anahtar kelimeleri veya sayısal verileri (AKTS, Puan, Yüzde) içeriyor mu? Buna dikkat et
+    1. Belge, sorudaki ana konuyu (Staj, Kredi, AKTS, Puan) anlatıyor mu?
+    2. Sorudaki detaylar (parantez içi vb.) belgede birebir geçmeyebilir. ANLAM olarak eşleşiyorsa SEÇ.
+    3. Sayısal veriler (30 AKTS, %20, 65 puan) içeren belgeleri önceliklendir.
     
     ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
@@ -66,12 +66,12 @@ def generate_answer(question, vector_store, chat_history):
         )
         
         cleaning_prompt = f"""
-        GÖREV: Aşağıdaki kullanıcı sorusunu Vektör Veritabanı araması için optimize et.
+        ÖREV: Kullanıcı sorusunu veritabanı araması için sadeleştir ve resmi dile çevir.
         
-        YAPILACAKLAR:
-        1. Gereksiz kelimeleri, parantez içlerini ve dolgu sözcüklerini sil (Örn: "Dönem içi", "acaba", "lütfen").
-        2. Öğrenci dilini Yönetmelik diline çevir (Örn: "Staj" -> "İşletmede Mesleki Eğitim / Staj").
-        3. Sadece temizlenmiş ve resmi anahtar kelimeleri yaz.
+        KURALLAR:
+        1. "Dönem içi", "Acaba", "Lütfen" gibi gereksiz detayları/gürültüleri sil.
+        2. "Staj" kelimesini "İşletmede Mesleki Eğitim / Staj" olarak genişlet.
+        3. Sadece en önemli anahtar kelimeler kalsın.
         
         Kullanıcı Sorusu: "{question}"
         
