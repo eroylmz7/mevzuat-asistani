@@ -23,7 +23,7 @@ try:
     from data_ingestion import process_pdfs, delete_document_cloud, connect_to_existing_index
     from generation import generate_answer 
 except ImportError as e:
-    st.error(f"⚠️ Kritik Başlatma Hatası: {e}")
+    st.error(f"Kritik Başlatma Hatası: {e}")
     st.stop()
 
 # --- CSS TASARIMI (GÜNCELLENDİ: VIEW BUTONU EKLENDİ) ---
@@ -130,12 +130,12 @@ if st.session_state.vector_store is None:
             st.session_state.vector_store = connect_to_existing_index()
             
             if st.session_state.vector_store:
-                st.toast("✅ Veritabanı Bağlantısı Başarılı!", icon="🚀")
+                st.toast(" Veritabanı Bağlantısı Başarılı!", icon="🚀")
             else:
                 # Yedek bağlantı
                 st.session_state.vector_store = get_cloud_db()
         except Exception as e:
-            st.error(f"🚨 Bağlantı Hatası: {e}")
+            st.error(f" Bağlantı Hatası: {e}")
 
 # --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
@@ -143,7 +143,7 @@ if not st.session_state.logged_in:
     _, col_main, _ = st.columns([1, 1.5, 1])
     with col_main:
         with st.container():
-            tab_login, tab_signup = st.tabs(["🔑 Giriş Yap", "📝 Kayıt Ol"])
+            tab_login, tab_signup = st.tabs([" Giriş Yap", " Kayıt Ol"])
             with tab_login:
                 st.markdown("<br>", unsafe_allow_html=True)
                 with st.form("login_form"):
@@ -203,7 +203,7 @@ with st.sidebar:
         st.divider()
         
       # Dosya Yönetimi
-        st.subheader("📁 Veri Yönetimi")
+        st.subheader(" Veri Yönetimi")
         
         # --- 1. UPLOADER KEY (Kutuyu temizlemek için sayaç) ---
         if "uploader_key" not in st.session_state:
@@ -227,7 +227,7 @@ with st.sidebar:
                 # Böylece karar tamamen arka plandaki "Dedektif"e kalıyor.
                 st.session_state.vector_db = process_pdfs(uploaded_files)
                 
-                durum.update(label="✅ Belgeler Eklendi!", state="complete")
+                durum.update(label=" Belgeler Eklendi!", state="complete")
                 
                 st.toast("İşlem tamamlandı, liste yenileniyor...", icon="🎉")
                 
@@ -273,7 +273,7 @@ with st.sidebar:
                 col_yes, col_no = st.columns(2)
                 
                 with col_yes:
-                    if st.button("✅ EVET, SİL", use_container_width=True):
+                    if st.button(" EVET, SİL", use_container_width=True):
                         with st.spinner("Siliniyor..."):
                             success, msg = delete_document_cloud(target_file)
                             if success:
@@ -284,7 +284,7 @@ with st.sidebar:
                                 st.error(msg)
                 
                 with col_no:
-                    if st.button("❌ VAZGEÇ", use_container_width=True):
+                    if st.button(" VAZGEÇ", use_container_width=True):
                         del st.session_state.delete_target
                         st.rerun()
 

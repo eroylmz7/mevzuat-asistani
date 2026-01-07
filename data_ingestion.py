@@ -171,9 +171,9 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             is_complex, reason = analyze_pdf_complexity(file_path)
             
             if is_complex:
-                st.warning(f"🟠 Vision Modu: {uploaded_file.name}\nSebep: {reason}")
+                st.warning(f" Vision Modu: {uploaded_file.name}\nSebep: {reason}")
             else:
-                st.success(f"🟢 Hızlı Mod: {uploaded_file.name}\nSebep: {reason}")
+                st.success(f" Hızlı Mod: {uploaded_file.name}\nSebep: {reason}")
             
             should_use_vision = use_vision_mode or is_complex
             
