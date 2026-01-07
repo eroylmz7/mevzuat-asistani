@@ -67,7 +67,7 @@ def rerank_documents(query, docs, api_key):
     KURALLAR:
     1. Soruda özellikle  Lisans ile ilgili mi Lisansüstü ile ilgili mi soru sorulmuş dikkat et.
     2. Soru "Staj" ise, "Yönerge" belgelerine öncelik ver.
-    3. Soruya NET cevap içeren belgeleri seç.
+    3. Soruya net cevap içeren belgeleri seç.
     
     ÇIKTI FORMATI (Sadece JSON):
     {{
@@ -111,7 +111,7 @@ def generate_answer(question, vector_store, chat_history):
     
     translation_prompt = f"""
     Soru: "{refined_question}"
-    
+
     GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
     
     ANALİZ MANTIĞI (SADE):
