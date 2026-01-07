@@ -67,7 +67,7 @@ def generate_answer(question, vector_store,chat_history):
 
     numeric_keywords = [
         "kaç", "yüzde", "oran", "puan", "sayı", "en az", "en çok", 
-        "süresi", "yıl", "gün", "notu", "katsayı", "ağırlık"
+        "süresi", "yıl", "gün", "notu", "katsayı", "ağırlık", "akts", "kredi", "etki", "ortalama", "harf", "başarı", "asgari"
     ]
     
     is_numeric_question = any(keyword in question.lower() for keyword in numeric_keywords)
