@@ -28,17 +28,16 @@ def generate_answer(question, vector_store, chat_history):
        
     2. GÜNCELLİK VE DETAY:
        - Soru "Yayın şartı", "Mezuniyet kriteri" içeriyorsa -> "Senato Kararı", "Yayın Esasları", "Ek Madde" terimlerini ekle.
-       - Soru bir tarih veya yürürlük soruyorsa -> "Yürürlük Tarihi", "Geçici Madde" ekle.
     
     Soru: "{question}"
     Geliştirilmiş Arama Sorgusu (Sadece terimler):
     """
     
-    try:
-        official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        hybrid_query = f"{question} {official_terms}"
-    except:
-        hybrid_query = question 
+    #try:
+        #official_terms = llm_translator.invoke(translation_prompt).content.strip()
+        #hybrid_query = f"{question} {official_terms}"
+    #except:
+    hybrid_query = question 
 
     # --- 3. RETRIEVAL (KARARLI MOD) ---
     try:
@@ -46,7 +45,7 @@ def generate_answer(question, vector_store, chat_history):
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
             k=15,             
-            fetch_k=150,      
+            fetch_k=200,      
             lambda_mult=0.7  
         )
     except Exception as e:

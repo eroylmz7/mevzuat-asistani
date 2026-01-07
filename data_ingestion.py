@@ -269,7 +269,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                     current_progress = min((i + batch_size) / len(all_documents), 1.0)
                     progress_bar.progress(current_progress)
                     
-                    # ⚠️ Google Kotası İçin Fren: Her vagondan sonra 2 saniye bekle
+                    # Google Kotası İçin Fren: Her vagondan sonra 2 saniye bekle
                     time.sleep(2)
             
             st.success("✅ Tüm belgeler başarıyla vektörleştirildi!")
