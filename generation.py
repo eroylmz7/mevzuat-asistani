@@ -109,7 +109,7 @@ def generate_answer(question, vector_store, chat_history):
     KURAL 2: KAPSAM AYRIMI (ÇOK ÖNEMLİ)
     - Belge başlıklarına ve içeriğine bakarak kapsamı sen ayırt et:
       * Soru "Yüksek Lisans" veya "Doktora" ise ->  Lisansüstü belgelerinden cevap ver.
-      * Soru "Lisans" veya "Önlisans" ise -> Lisansüstü belgelerinden cevap ver.
+      * Soru "Lisans" veya "Önlisans" ise -> Lisans belgelerinden cevap ver.
       * "Lisans" sorusuna "Lisansüstü" yönetmeliğinden cevap verme (veya tam tersi).
 
     KURAL 3: BİLGİ BİRLEŞTİRME VE SENTEZ
