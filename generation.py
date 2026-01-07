@@ -58,8 +58,6 @@ def generate_answer(question, vector_store, chat_history):
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
     # --- ADIM 1: GENİŞ ARAMA (RETRIEVAL) ---
-    # Router, HyDE vs. HEPSİNİ KALDIRDIK.
-    # Sadece soruyu soruyoruz ama "k" değerini artırıyoruz.
     try:
         # k=45 yapıyoruz. "Ağı" geniş atıyoruz ki o staj maddesi mutlaka takılsın.
         docs = vector_store.max_marginal_relevance_search(
