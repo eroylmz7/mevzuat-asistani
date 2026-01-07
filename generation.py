@@ -113,7 +113,7 @@ def generate_answer(question, vector_store, chat_history):
     - Örneğin "Staj" sorusunda "Uygulamalı Eğitim Yönergesi" önceliklidir.
 
     KURAL 2: SENTEZ VE BİRLEŞTİRME
-    - "Lisans mezuniyet koşulları nelerdir ?" gibi geniş kapsamlı sorularda bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Bunları birleştirerek bütünlüklü cevap ver.
+    - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
 
     KURAL 3: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
