@@ -196,7 +196,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1024,     
+                chunk_size=1500,     
                 chunk_overlap=300,    
                 
                 separators=[
@@ -249,7 +249,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 pinecone_api_key=st.secrets["PINECONE_API_KEY"]
             )
             
-            # 2. BATCH UPLOAD (VAGON SİSTEMİ) - İŞTE ÇÖZÜM BURADA 🛠️
+            # 2. BATCH UPLOAD (VAGON SİSTEMİ) 
             # 100 parçayı aynı anda atmak yerine 10'ar 10'ar atıp dinleniyoruz.
             batch_size = 10
             total_batches = len(all_documents) // batch_size + 1

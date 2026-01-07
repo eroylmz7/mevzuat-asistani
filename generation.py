@@ -32,7 +32,7 @@ def generate_answer(question, vector_store, chat_history):
     3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
        - (İpuçları: Staj, İME, Uygulamalı Eğitim, İş Yeri Eğitimi, Grup)
        - EKLE: "UYGULAMALI EĞİTİM YÖNERGESİ"
-       # Buraya "Yönetmelik" kelimesi eklemedik ki küçük yönerge dosyası arada kaybolmasın.
+       
 
     4. DİĞER DURUMLARDA:
        - Sadece "MEVZUAT" ekle.
@@ -112,19 +112,13 @@ def generate_answer(question, vector_store, chat_history):
     - Eğer "Yönetmelik" ile "Yönerge" arasında fark varsa, daha detaylı olan YÖNERGEYİ/ESASLARI baz al.
     - Örneğin "Staj" sorusunda "Uygulamalı Eğitim Yönergesi" önceliklidir.
 
-    KURAL 2: KAPSAM AYRIMI
-    - Soru "Yüksek Lisans/Doktora" ise -> Lisansüstü belgelerine bak.
-    - Soru "Lisans/Önlisans" ise ->  Lisans belgelerine bak.
-    - Soruda özellikle Lisans, Yüksek Lisans gibi bir belirtim yoksa daha genel düşün 
+    KURAL 2: SENTEZ VE BİRLEŞTİRME
+    - "Lisans mezuniyet koşulları nelerdir ?" gibi geniş kapsamlı sorularda bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Bunları birleştirerek bütünlüklü cevap ver.
 
-
-    KURAL 3: SENTEZ VE BİRLEŞTİRME
-    - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Bunları birleştirerek bütünlüklü cevap ver.
-
-    KURAL 4: REFERANS
+    KURAL 3: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
 
-    KURAL 5: DÜRÜSTLÜK
+    KURAL 4: DÜRÜSTLÜK
     - Bilgi yoksa uydurma, "Belgelerde bulunmamaktadır" de.
 
     CEVAP:
