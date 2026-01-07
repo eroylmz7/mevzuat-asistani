@@ -35,7 +35,7 @@ def rerank_documents(query, docs, api_key):
     1. **KAPSAM UYUMU:** Sorunun muhatabı kim? (Örn: Soru "Doktora" diyorsa, sadece "Lisans" ile ilgili belgeleri ELE. Soru "Yurt" diyorsa, "Eğitim" belgelerini ELE.)
     2. **İÇERİK EŞLEŞMESİ:** Belge, soruya cevap olabilecek somut bir hüküm, madde veya sayısal veri içeriyor mu? Boş veya alakasız giriş kısımlarını seçme.
     3. **HİYERARŞİ:** Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
-    1. **SAYISAL EŞLEŞME:** Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların veya tabloların geçtiği parçaları seç.
+    1. **SAYISAL EŞLEŞME:** Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların geçtiği metinleri veya tabloları seç.
     
     ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
