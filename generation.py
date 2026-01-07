@@ -25,9 +25,9 @@ def generate_answer(question, vector_store, chat_history):
        - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK, ALES)
        - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
 
-    2. EĞER SORU "LİSANS" (Fakülte/MYO) İLE İLGİLİYSE:
+    2. EĞER SORU "LİSANS"  İLE İLGİLİYSE:
        - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, DC, DD, Azami Süre)
-       - EKLE: "ÖNLİSANS VE LİSANS EĞİTİM YÖNETMELİĞİ"
+       - EKLE: "LİSANS EĞİTİM YÖNETMELİĞİ"
 
     3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
        - (İpuçları: Staj, İME, Uygulamalı Eğitim, İş Yeri Eğitimi, Grup)
@@ -93,7 +93,7 @@ def generate_answer(question, vector_store, chat_history):
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0 # Yaratıcılık sıfır, sadece kanıt.
+        temperature=0.1 # Yaratıcılık sıfır, sadece kanıt.
     )
     
     final_template = f"""
@@ -127,7 +127,7 @@ def generate_answer(question, vector_store, chat_history):
     try:
         answer = llm_answer.invoke(final_template).content
         
-        # --- DEĞİŞİKLİK BURADA: CEVAP YOKSA KAYNAK GİZLE 🕵️‍♂️ ---
+        # --- DEĞİŞİKLİK BURADA: CEVAP YOKSA KAYNAK GİZLE  ---
         # Eğer cevapta "bulunamadı", "yoktur" gibi şeyler geçiyorsa kaynakları boşalt.
         negative_signals = ["bulunmamaktadır", "bilgi yok", "rastlanmamıştır", "yer almamaktadır", "belirtilmemiştir"]
         
