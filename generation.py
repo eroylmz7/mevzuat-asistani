@@ -66,7 +66,7 @@ def generate_answer(question, vector_store, chat_history):
         )
         
         cleaning_prompt = f"""
-        ÖREV: Kullanıcı sorusunu veritabanı araması için sadeleştir ve resmi dile çevir.
+        GÖREV: Kullanıcı sorusunu veritabanı araması için sadeleştir ve resmi dile çevir.
         
         KURALLAR:
         1. "Dönem içi", "Acaba", "Lütfen" gibi gereksiz detayları/gürültüleri sil.
@@ -87,18 +87,33 @@ def generate_answer(question, vector_store, chat_history):
 
     # --- ADIM 1: GENİŞ ARAMA (RETRIEVAL) ---
     try:
-        docs = vector_store.max_marginal_relevance_search(
-            optimized_query,  # <--- BURASI DEĞİŞTİ: Artık temiz sorguyu arıyoruz!
-            k=45,             
-            fetch_k=200,      
-            lambda_mult=0.5   
+        # Arama A: Orijinal Soru (Belki parantez içi önemlidir?)
+        docs_raw = vector_store.max_marginal_relevance_search(
+            question, k=25, fetch_k=200, lambda_mult=0.5
         )
+        
+        # Arama B: Temiz Soru (Gürültüsüz)
+        docs_clean = vector_store.max_marginal_relevance_search(
+            optimized_query, k=25, fetch_k=200, lambda_mult=0.5
+        )
+
+        # Listeleri Birleştir (Tekrarları Silerek)
+        seen_contents = set()
+        initial_docs = []
+        
+        # Önce temiz sonuçları ekle (Daha güvenilirdir)
+        for doc in docs_clean + docs_raw:
+            content_preview = doc.page_content[:100]
+            if content_preview not in seen_contents:
+                initial_docs.append(doc)
+                seen_contents.add(content_preview)
+
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
     # --- ADIM 2: RERANKING (ELEME) ---
     # Reranker'a orijinal soruyu veriyoruz ki bağlamı kaçırmasın.
-    final_docs = rerank_documents(question, docs, google_api_key)
+    final_docs = rerank_documents(optimized_query, initial_docs, google_api_key)
 
     # --- ADIM 3: FORMATLAMA ---
     context_text = ""
@@ -117,7 +132,7 @@ def generate_answer(question, vector_store, chat_history):
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.3 # Biraz esneklik iyidir
+        temperature=0.3 #  esneklik 
     )
     
     final_template = f"""
