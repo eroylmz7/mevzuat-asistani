@@ -120,7 +120,6 @@ def generate_answer(question, vector_store, chat_history):
 
     KURAL 4: REFERANS FORMATI
     - Her bilginin sonuna, o bilgiyi hangi dosyadan aldığını parantez içinde ekle.
-    - Örnek: "Tez savunması en geç 1 ay içinde yapılır. (uludag_lisansustu_yonetmelik.pdf)"
 
     KURAL 5: DÜRÜSTLÜK
     - Eğer bilgi metinlerde HİÇ YOKSA, uydurma. "Belgelerde bu bilgi bulunmamaktadır" de.
