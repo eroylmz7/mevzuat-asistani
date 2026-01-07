@@ -196,18 +196,23 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=2000,     
+                chunk_size=2500,     
                 chunk_overlap=400,    
                 
                 separators=[
-                    "\nMADDE",        # Önce Maddelere göre bölmeye çalışsın (En ideali)
-                    "\nGEÇİCİ MADDE", # Geçici maddeleri de yakalayalım
-                    "\n###",          # Başlıklar
-                    "\n\n",           # Paragraflar
-                    "\n",             # Satırlar
-                    ". ",             # Cümleler
-                    " ",              # Kelimeler
-                    ""                # Harfler (son çare)
+                    # 1. Resmi Bölümler
+                    "\nMADDE", "\nGEÇİCİ MADDE", "\nBÖLÜM",
+                    
+                    # 2. Başlıklar
+                    "\n###", 
+                    
+                    # 3. Liste Yapıları (tezyayinsarti.pdf gibi belgeler için)
+                    "\n1.", "\n2.", "\n3.", 
+                    "\na)", "\nb)", "\nc)", 
+                    "\n- ", "\n* ",
+                    
+                    # 4. Standartlar
+                    "\n\n", "\n", ". ", " ", ""
                 ]
             )
             split_docs = text_splitter.split_documents([unified_doc])
