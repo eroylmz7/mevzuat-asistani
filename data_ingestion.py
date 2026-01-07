@@ -12,6 +12,7 @@ from supabase import create_client
 from pinecone import Pinecone
 import io
 import collections
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 # --- 1. GEMINI AYARLARI ---
 def configure_gemini():
@@ -89,6 +90,46 @@ def analyze_pdf_complexity(file_path):
     except Exception as e:
         print(f"Analiz Hatası: {e}")
         return False, "Analiz Hatası -> Standart Mod"
+    
+   #Belge'yi isminden değil içeriğinden tanıyacağız. 
+def detect_document_title(text_preview, filename):
+    """
+    Belgenin ilk sayfasını okuyup resmi başlığını bulur.
+    Dosya adı anlamsız olsa bile (örn: "adsiz.pdf"), içeriğe bakıp "Staj Yönergesi" olduğunu anlar.
+    """
+    try:
+        if "GOOGLE_API_KEY" not in st.secrets: return filename
+        
+        # Sadece başlık tespiti için küçük bir model çağırıyoruz
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            google_api_key=st.secrets["GOOGLE_API_KEY"],
+            temperature=0.0
+        )
+        
+        prompt = f"""
+        GÖREV: Aşağıdaki metin bir resmi belgenin giriş kısmıdır.
+        Bu belgenin RESMİ BAŞLIĞINI tespit et.
+        
+        KURALLAR:
+        1. Dosya adı ({filename}) anlamsız olabilir, metne odaklan.
+        2. Metinde "YÖNETMELİK", "YÖNERGE", "USUL VE ESASLAR" geçiyorsa tam adını yaz.
+        3. Bulamazsan dosya adını temizleyip yaz.
+        4. Sadece başlığı yaz, yorum yapma.
+        
+        METİN:
+        {text_preview[:3000]}
+        
+        RESMİ BAŞLIK:
+        """
+        title = llm.invoke(prompt).content.strip()
+        
+        # Eğer model saçmalarsa (çok uzun cevap verirse) dosya adını kullan
+        if len(title) > 150: return filename
+        return title
+        
+    except Exception as e:
+        return filename # Hata durumunda dosya adını kullan
 
 # --- 3. VISION OKUMA (SESSİZ VE GÜVENLİ) ---
 def pdf_image_to_text_with_gemini(file_path):
@@ -150,6 +191,7 @@ def pdf_image_to_text_with_gemini(file_path):
 
 # --- 4. ANA İŞLEME FONKSİYONU ---
 
+# --- 4. ANA İŞLEME FONKSİYONU (GÜNCELLENMİŞ HALİ) ---
 def process_pdfs(uploaded_files, use_vision_mode=False):
     try:
         supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -189,35 +231,37 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                  doc = fitz.open(file_path)
                  for page in doc: full_text += page.get_text()
 
-            header_text = full_text[:300].replace("\n", " ").strip() if full_text else "Başlıksız"
+            # --- 🔥 YENİLİK 1: OTOMATİK BAŞLIK TESPİTİ 🔥 ---
+            # Belgenin ne olduğunu Gemini'ye soruyoruz (Dosya ismine güvenmiyoruz)
+            detected_title = detect_document_title(full_text, uploaded_file.name)
+            st.caption(f"🏷️ Belge Tanımlandı: **{detected_title}**")
+
+            # Ana doküman objesi
             unified_doc = Document(
-                page_content=f"BELGE KİMLİĞİ: {header_text}\nKAYNAK DOSYA: {uploaded_file.name}\n---\n{full_text}",
-                metadata={"source": uploaded_file.name}
+                page_content=f"{full_text}", 
+                metadata={"source": uploaded_file.name, "official_title": detected_title}
             )
             
+            # --- GÜNCELLENMİŞ SPLITTER (MEVZUAT DOSTU) ---
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=2500,     
+                chunk_size=2500,      # Madde bütünlüğü için 2500
                 chunk_overlap=400,    
-                
                 separators=[
-                    # 1. Resmi Bölümler
-                    "\nMADDE", "\nGEÇİCİ MADDE", "\nBÖLÜM",
-                    
-                    # 2. Başlıklar
-                    "\n###", 
-                    
-                    # 3. Liste Yapıları (tezyayinsarti.pdf gibi belgeler için)
-                    "\n1.", "\n2.", "\n3.", 
-                    "\na)", "\nb)", "\nc)", 
-                    "\n- ", "\n* ",
-                    
-                    # 4. Standartlar
-                    "\n\n", "\n", ". ", " ", ""
+                    "\nMADDE", "\nGEÇİCİ MADDE", "\nBÖLÜM", "\n###", 
+                    "\n1.", "\n2.", "\na)", "\nb)", "\n- ", 
+                    "\n\n", "\n", ". ", " "
                 ]
             )
             split_docs = text_splitter.split_documents([unified_doc])
             
-            # Belgeleri ana listeye ekle (Burada uyumaya gerek yok)
+            # --- METADATA ---
+            #
+            
+            for doc in split_docs:
+                
+                doc.page_content = f"BELGE TÜRÜ: {detected_title}\nDOSYA ADI: {uploaded_file.name}\n---\n{doc.page_content}"
+
+            # Belgeleri ana listeye ekle
             all_documents.extend(split_docs)
             
             if os.path.exists(file_path): os.remove(file_path)
@@ -238,42 +282,30 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             st.error(f"Hata ({uploaded_file.name}): {e}")
 
     if all_documents:
+        # Pinecone Yükleme İşlemleri
         try:
-            st.info(f" Toplam {len(all_documents)} parça Google sunucularına parça parça işleniyor...")
+            st.info(f" Toplam {len(all_documents)} parça Google sunucularına işleniyor...")
             
-            # 1. Önce Modeli ve Vektör Store'u Hazırla (Boş Olarak)
             embedding_model = GoogleGenerativeAIEmbeddings(
                 model="models/embedding-001",
                 google_api_key=st.secrets["GOOGLE_API_KEY"]
             )
             
-            # Pinecone bağlantısını kur
             vector_store = PineconeVectorStore(
                 index_name="mevzuat-asistani",
                 embedding=embedding_model,
                 pinecone_api_key=st.secrets["PINECONE_API_KEY"]
             )
             
-            # 2. BATCH UPLOAD (VAGON SİSTEMİ) 
-            # 100 parçayı aynı anda atmak yerine 10'ar 10'ar atıp dinleniyoruz.
             batch_size = 10
-            total_batches = len(all_documents) // batch_size + 1
-            
             progress_bar = st.progress(0)
             
             for i in range(0, len(all_documents), batch_size):
-                # 10 parçalık vagonu al
                 batch = all_documents[i : i + batch_size]
-                
                 if batch:
-                    # Vagonu Pinecone'a gönder
                     vector_store.add_documents(batch)
-                    
-                    # İlerleme çubuğunu güncelle
                     current_progress = min((i + batch_size) / len(all_documents), 1.0)
                     progress_bar.progress(current_progress)
-                    
-                    # Google Kotası İçin Fren: Her vagondan sonra 2 saniye bekle
                     time.sleep(2)
             
             st.success(" Tüm belgeler başarıyla vektörleştirildi!")
