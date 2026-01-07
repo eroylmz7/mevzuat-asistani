@@ -4,39 +4,6 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 import json
 import re
 
-# --- 1. GEÇMİŞİ HATIRLAYAN SORU DÜZENLEYİCİ ---
-def reformulate_question(question, chat_history, api_key):
-    if not chat_history:
-        return question
-
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
-        google_api_key=api_key,
-        temperature=0.1
-    )
-    
-    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
-
-    prompt = f"""
-    GÖREV: Sohbet geçmişine bakarak kullanıcının son sorusunu tek başına anlaşılır hale getir.
-    
-    SOHBET GEÇMİŞİ:
-    {history_text}
-    
-    SON SORU: "{question}"
-    
-    KURALLAR:
-    - Soru "Süresi ne kadar?", "Kaç kredi?" gibi eksikse, geçmişten özneyi (Örn: Lisans Mezuniyeti) bul ve tamamla.
-    - Soru zaten netse aynen bırak.
-    
-    DÜZENLENMİŞ SORU:
-    """
-    
-    try:
-        return llm.invoke(prompt).content.strip()
-    except:
-        return question
-    
 # --- YARDIMCI FONKSİYON: GEMINI RERANKER (AKILLI HAKEM) ---
 def rerank_documents(query, docs, api_key):
     """
@@ -57,38 +24,34 @@ def rerank_documents(query, docs, api_key):
         doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
 
     rerank_prompt = f"""
-    GÖREV: Aşağıdaki belge parçalarını kullanıcının sorusuna olan alaka düzeyine göre değerlendir.
-    
+    GÖREV: Aşağıdaki belge parçalarını analiz et ve kullanıcının sorusuyla EN ALAKALI olanları seç.
+
     SORU: "{query}"
-    
+
     ADAY BELGELER:
     {doc_text}
+
+    SEÇİM STRATEJİSİ (GENEL KURALLAR):
+    1. **KAPSAM UYUMU:** Sorunun muhatabı kim? (Örn: Soru "Doktora" diyorsa, sadece "Lisans" ile ilgili belgeleri ELE. Soru "Yurt" diyorsa, "Eğitim" belgelerini ELE.)
+    2. **İÇERİK EŞLEŞMESİ:** Belge, soruya cevap olabilecek somut bir hüküm, madde veya sayısal veri içeriyor mu? Boş veya alakasız giriş kısımlarını seçme.
+    3. **HİYERARŞİ:** Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
     
-    KURALLAR:
-    1. Soruda özellikle  Lisans ile ilgili mi Lisansüstü ile ilgili mi soru sorulmuş dikkat et.
-    2. Soru "Staj" ise, "Yönerge" belgelerine öncelik ver.
-    3. Soruya net cevap içeren belgeleri seç.
-    
-    ÇIKTI FORMATI (Sadece JSON):
-    {{
-        "selected_indices": [en iyi belgenin ID'si, ikinci en iyi ID, ...]
-    }}
-    En fazla 5 belge seç.
+    ÇIKTI FORMATI (JSON):
+    {{ "selected_indices": [0, 2, 5] }}
     """
     try:
         response = reranker_llm.invoke(rerank_prompt).content
-        
-        # --- JSON TEMİZLİK MEKANİZMASI (YENİ) ---
-        
+        # JSON temizliği (Markdown backticklerini kaldır)
         cleaned_response = re.sub(r"```json|```", "", response).strip()
-        
         selected_data = json.loads(cleaned_response)
         selected_indices = selected_data.get("selected_indices", [])
         
-        # Seçilenleri döndür
+        # Eğer hiçbiri seçilmezse veya hata olursa (boş dönerse) ilk 5 belgeyi al (Fallback)
+        if not selected_indices:
+            return docs[:5]
+            
         return [docs[i] for i in selected_indices if i < len(docs)]
     except:
-        # Hata olursa en iyi ihtimalle ilk 5'i döndür 
         return docs[:5]
 
 def generate_answer(question, vector_store, chat_history):
@@ -99,7 +62,7 @@ def generate_answer(question, vector_store, chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
-    refined_question = reformulate_question(question, chat_history, google_api_key)
+    
     
     
     # --- 2. ANALİST AJAN (Sorgu Zenginleştirme) ---
@@ -110,7 +73,7 @@ def generate_answer(question, vector_store, chat_history):
     )
     
     translation_prompt = f"""
-    Soru: "{refined_question}"
+    Soru: "{question}"
 
     GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
     
@@ -136,9 +99,9 @@ def generate_answer(question, vector_store, chat_history):
     
     try:
         official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        hybrid_query = f"{refined_question} {official_terms}"
+        hybrid_query = f"{question} {official_terms}"
     except:
-        hybrid_query = refined_question
+        hybrid_query = question
 
     # --- 3. RETRIEVAL (KARARLI MOD) ---
     try:
@@ -147,7 +110,7 @@ def generate_answer(question, vector_store, chat_history):
             hybrid_query,
             k=25,             
             fetch_k=300,      
-            lambda_mult=0.65  
+            lambda_mult=0.6  
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
@@ -156,7 +119,7 @@ def generate_answer(question, vector_store, chat_history):
 # --- 3. RE-RANKING (AKILLI ELEME) 🔥 ---
     # 25 belgeyi al, Gemini'ye ver, en iyi 5 tanesini seçtir.
     # Bu aşama "Lisans vs Yüksek Lisans" karışıklığını %100 çözer.
-    final_docs = rerank_documents(refined_question, initial_docs, google_api_key)
+    final_docs = rerank_documents(question, initial_docs, google_api_key)
 
     # --- 4. FORMATLAMA ---
     context_text = ""
@@ -185,7 +148,7 @@ def generate_answer(question, vector_store, chat_history):
     ELİNDEKİ BELGELER (context):
     {context_text}
 
-    SORU: {refined_question}
+    SORU: {question}
 
     ---  CEVAPLAMA KURALLARI ---
 
