@@ -180,7 +180,8 @@ def generate_answer(question, vector_store,chat_history):
     -Eğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
 
     KURAL 3: REFERANS
-    - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
+    - Bilgiyi bulabildiysen cevap ile birlikte sonuna hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
+    - Eğer cevabı bulamadıysan sadece "Belgelerde bu konu hakkında bilgi bulunmamaktadır." yaz.
 
     KURAL 4: DÜRÜSTLÜK
     - Bilgi yoksa uydurma, "Belgelerde bulunmamaktadır" de.
@@ -191,14 +192,26 @@ def generate_answer(question, vector_store,chat_history):
     try:
         answer = llm_answer.invoke(final_template).content
         
-        # --- DEĞİŞİKLİK BURADA: CEVAP YOKSA KAYNAK GİZLE  ---
-        # Eğer cevapta "bulunamadı", "yoktur" gibi şeyler geçiyorsa kaynakları boşalt.
-        negative_signals = ["bulunmamaktadır", "bilgi yok", "rastlanmamıştır", "yer almamaktadır", "belirtilmemiştir"]
+        # --- BURASI DA GÜNCELLENDİ: ZORLA TEMİZLİK 🧹 ---
+        # Artık uzunluk (len) kontrolü yapmıyoruz.
+        # Eğer "bulunmamaktadır" diyorsa, kaynak listesini direkt boşaltıyoruz.
+        negative_signals = [
+            "bilgi bulunmamaktadır", 
+            "bilgiye rastlanmamıştır", 
+            "yer almamaktadır", 
+            "belirtilmemiştir",
+            "ulaşılamamaktadır"
+        ]
         
-        if any(signal in answer.lower() for signal in negative_signals):
-            final_sources = [] # Boş liste döndür (Böylece UI'da kutu çıkmaz)
+        # Cevabı küçük harfe çevirip sinyalleri arıyoruz
+        answer_lower = answer.lower()
+        
+        if any(signal in answer_lower for signal in negative_signals):
+            # Cevap olumsuzsa, kaynakları (dosya isimlerini) KESİNLİKLE gösterme.
+            final_sources = []
         else:
-            final_sources = sources[:5] # Sadece ilk 5 dosya adı
+            # Cevap olumluysa ilk 5 kaynağı göster.
+            final_sources = sources[:5]
 
         return {"answer": answer, "sources": final_sources}
 
