@@ -54,7 +54,7 @@ def rerank_documents(query, docs, api_key):
     except:
         return docs[:5]
 
-def generate_answer(question, vector_store):
+def generate_answer(question, vector_store,chat_history):
     
     # --- 1. GÜVENLİK ---
     if "GOOGLE_API_KEY" in st.secrets:
