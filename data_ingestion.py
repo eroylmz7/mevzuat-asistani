@@ -196,8 +196,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,     
-                chunk_overlap=300,    
+                chunk_size=2000,     
+                chunk_overlap=400,    
                 
                 separators=[
                     "\nMADDE",        # Önce Maddelere göre bölmeye çalışsın (En ideali)
@@ -234,7 +234,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
 
     if all_documents:
         try:
-            st.info(f"🚀 Toplam {len(all_documents)} parça Google sunucularına parça parça işleniyor...")
+            st.info(f" Toplam {len(all_documents)} parça Google sunucularına parça parça işleniyor...")
             
             # 1. Önce Modeli ve Vektör Store'u Hazırla (Boş Olarak)
             embedding_model = GoogleGenerativeAIEmbeddings(
@@ -271,7 +271,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                     # Google Kotası İçin Fren: Her vagondan sonra 2 saniye bekle
                     time.sleep(2)
             
-            st.success("✅ Tüm belgeler başarıyla vektörleştirildi!")
+            st.success(" Tüm belgeler başarıyla vektörleştirildi!")
             return vector_store
             
         except Exception as e:
