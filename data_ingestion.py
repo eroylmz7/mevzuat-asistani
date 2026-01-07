@@ -196,8 +196,8 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             )
             
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=1500,     
-                chunk_overlap=300,    
+                chunk_size=1000,     
+                chunk_overlap=200,    
                 
                 separators=[
                     "\nMADDE",        # Önce Maddelere göre bölmeye çalışsın (En ideali)
