@@ -18,20 +18,27 @@ def generate_answer(question, vector_store, chat_history):
     )
     
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için en kritik anahtar kelimeleri ekle.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
     
-    
-    ANALİZ ADIMLARI:
-    1. KONU TESPİTİ:
-        - "Tez", "Jüri", "Yüksek Lisans", "Doktora" → "LİSANSÜSTÜ EĞİTİM"
-        - "Çap", "Yandal", "Yaz Okulu", "Ders" → "LİSANS EĞİTİMİ"
-        - "Rektör", "Personel", "İzin", "Atama" → "İDARİ MEVZUAT"
-        - "Ceza", "Kopya", "Uzaklaştırma", "Soruşturma" → "DİSİPLİN SUÇU"
-        - "Yayın şartı", "Mezuniyet şartı" → "SENATO KARARI"
+    ANALİZ MANTIĞI (SADE):
+    1. EĞER SORU "LİSANSÜSTÜ" (Master/Doktora) İLE İLGİLİYSE:
+       - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK, ALES)
+       - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
 
-    
+    2. EĞER SORU "LİSANS" (Fakülte/MYO) İLE İLGİLİYSE:
+       - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, DC, DD, Azami Süre)
+       - EKLE: "ÖNLİSANS VE LİSANS EĞİTİM YÖNETMELİĞİ"
+
+    3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
+       - (İpuçları: Staj, İME, Uygulamalı Eğitim, İş Yeri Eğitimi, Grup)
+       - EKLE: "UYGULAMALI EĞİTİM YÖNERGESİ"
+       # Buraya "Yönetmelik" kelimesi eklemedik ki küçük yönerge dosyası arada kaybolmasın.
+
+    4. DİĞER DURUMLARDA:
+       - Sadece "MEVZUAT" ekle.
+
     Soru: "{question}"
-    Geliştirilmiş Arama Sorgusu (Sadece terimler):
+    Sadece eklenecek anahtar kelimeleri yaz:
     """
     
     try:
@@ -46,8 +53,8 @@ def generate_answer(question, vector_store, chat_history):
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
             k=20,             
-            fetch_k=120,      
-            lambda_mult=0.75  
+            fetch_k=150,      
+            lambda_mult=0.7  
         )
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
@@ -98,30 +105,25 @@ def generate_answer(question, vector_store, chat_history):
 
     SORU: {question}
 
-    --- 🧠 KARAR VERME VE CEVAPLAMA KURALLARI ---
+    --- 🧠 CEVAPLAMA KURALLARI ---
 
-    KURAL 1: BELGE TÜRÜ VE HİYERARŞİSİ (ETİKET YOK, MANTIK VAR) ⚖️
-    - Hukukta "Özel Hüküm", "Genel Hüküm"den üstündür.
-    - Eğer elindeki belgelerde bir çelişki görürsen:
-      A) "Uygulama Esasları", "Yönerge" veya "Senato Kararı" gibi detaylı belgeler, genel "Yönetmelik"lerden daha önceliklidir. Onlardaki bilgiyi esas al.
-      B) Daha yeni tarihli olan belgeyi (Eğer tarih varsa) esas al.
+    KURAL 1: BELGE TÜRÜ VE HİYERARŞİSİ ⚖️
+    - "Uygulama Esasları", "Yönerge" veya "Senato Kararı" gibi belgeler, o konudaki ÖZEL detayları içerir. 
+    - Eğer "Yönetmelik" ile "Yönerge" arasında fark varsa, daha detaylı olan YÖNERGEYİ/ESASLARI baz al.
+    - Örneğin "Staj" sorusunda "Uygulamalı Eğitim Yönergesi" önceliklidir.
 
-    KURAL 2: KAPSAM AYRIMI (ÇOK ÖNEMLİ)
-    - Belge başlıklarına ve içeriğine bakarak kapsamı sen ayırt et:
-      * Soru "Yüksek Lisans" veya "Doktora" ise ->  Lisansüstü belgelerinden cevap ver.
-      * Soru "Lisans" veya "Önlisans" ise -> Lisans belgelerinden cevap ver.
-      * "Lisans" sorusuna "Lisansüstü" yönetmeliğinden cevap verme (veya tam tersi).
+    KURAL 2: KAPSAM AYRIMI
+    - Soru "Yüksek Lisans/Doktora" ise -> Sadece Lisansüstü belgelerine bak.
+    - Soru "Lisans/Önlisans" ise -> Sadece Fakülte/MYO belgelerine bak.
 
-    KURAL 3: BİLGİ BİRLEŞTİRME VE SENTEZ
-    - Kullanıcı "Mezuniyet şartları nelerdir?" gibi GENEL bir liste isterse:
-    - Tek bir maddede toplu liste arama. Metin içine dağılmış bilgileri (AKTS, GANO, Süre, Zorunlu dersler) sen toplayıp BİRLEŞTİR.
-    - "Belgelerde toplu liste yok" deyip kestirip atma. Dedektif gibi parçaları birleştir.
+    KURAL 3: SENTEZ VE BİRLEŞTİRME
+    - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Bunları birleştirerek bütünlüklü cevap ver.
 
-    KURAL 4: REFERANS FORMATI
-    - Her bilginin sonuna, o bilgiyi hangi dosyadan aldığını parantez içinde ekle.
+    KURAL 4: REFERANS
+    - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
 
     KURAL 5: DÜRÜSTLÜK
-    - Eğer bilgi metinlerde HİÇ YOKSA, uydurma. "Belgelerde bu bilgi bulunmamaktadır" de.
+    - Bilgi yoksa uydurma, "Belgelerde bulunmamaktadır" de.
 
     CEVAP:
     """
