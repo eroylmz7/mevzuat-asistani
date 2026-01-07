@@ -53,7 +53,7 @@ def generate_answer(question, vector_store, chat_history):
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
             k=20,             
-            fetch_k=150,      
+            fetch_k=300,      
             lambda_mult=0.7  
         )
     except Exception as e:
@@ -110,6 +110,7 @@ def generate_answer(question, vector_store, chat_history):
     
     KURAL 1: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
+    - Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
 
     KURAL 2: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
