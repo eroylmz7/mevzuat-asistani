@@ -143,9 +143,9 @@ def generate_answer(question, vector_store, chat_history):
     
     final_template = f"""
     Sen Bursa Uludağ Üniversitesi mevzuat asistanısın. 
-    Elinizdeki belgeleri (context) kullanarak soruya (question) en doğru, resmi ve net cevabı ver.
+    Elinizdeki belgeleri  kullanarak soruya en doğru, resmi ve net cevabı ver.
 
-    ELİNDEKİ BELGELER (context):
+    ELİNDEKİ BELGELER:
     {context_text}
 
     SORU: {question}
