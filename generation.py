@@ -109,8 +109,8 @@ def generate_answer(question, vector_store,chat_history):
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
         initial_docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
-            k=30,             
-            fetch_k=400,      
+            k=25,             
+            fetch_k=300,      
             lambda_mult=0.6  
         )
     except Exception as e:
