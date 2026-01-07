@@ -4,12 +4,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 import json
 import re
 
-# --- 1. GEÇMİŞİ HATIRLAYAN SORU DÜZENLEYİCİ  ---
+# --- 1. GEÇMİŞİ HATIRLAYAN SORU DÜZENLEYİCİ ---
 def reformulate_question(question, chat_history, api_key):
-    """
-    Eğer sohbet geçmişi varsa, kullanıcının "Peki süresi ne kadar?" gibi
-    eksik sorularını geçmişe bakarak "Stajın süresi ne kadar?" şeklinde tamamlar.
-    """
     if not chat_history:
         return question
 
@@ -19,28 +15,25 @@ def reformulate_question(question, chat_history, api_key):
         temperature=0.1
     )
     
-    # Sohbet geçmişini metne döküyoruz
-    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]]) # Son 4 mesaj yeterli
+    history_text = "\n".join([f"{msg['role']}: {msg['content']}" for msg in chat_history[-4:]])
 
     prompt = f"""
-    GÖREV: Aşağıdaki sohbet geçmişine bakarak, kullanıcının son sorusunu tek başına anlaşılır hale getir.
+    GÖREV: Sohbet geçmişine bakarak kullanıcının son sorusunu tek başına anlaşılır hale getir.
     
     SOHBET GEÇMİŞİ:
     {history_text}
     
-    KULLANICININ SON SORUSU: "{question}"
+    SON SORU: "{question}"
     
-    YAPILACAKLAR:
-    - Eğer soru "O", "Bunun", "Peki ya şu?" gibi zamirler içeriyorsa, geçmişten neyi kastettiğini bul ve soruyu yeniden yaz.
-    - Eğer soru zaten netse (örn: "Yatay geçiş şartları neler?"), aynen bırak.
-    - Cevap olarak SADECE yeniden düzenlenmiş soruyu yaz. Yorum yapma.
+    KURALLAR:
+    - Soru "Süresi ne kadar?", "Kaç kredi?" gibi eksikse, geçmişten özneyi (Örn: Lisans Mezuniyeti) bul ve tamamla.
+    - Soru zaten netse aynen bırak.
     
     DÜZENLENMİŞ SORU:
     """
     
     try:
-        new_question = llm.invoke(prompt).content.strip()
-        return new_question
+        return llm.invoke(prompt).content.strip()
     except:
         return question
     
@@ -61,7 +54,7 @@ def rerank_documents(query, docs, api_key):
     for i, doc in enumerate(docs):
         # Dosya adını ve içeriği birleştiriyoruz
         source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
-        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:350]}...\n"
+        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
 
     rerank_prompt = f"""
     GÖREV: Aşağıdaki belge parçalarını kullanıcının sorusuna olan alaka düzeyine göre değerlendir.
@@ -95,7 +88,7 @@ def rerank_documents(query, docs, api_key):
         # Seçilenleri döndür
         return [docs[i] for i in selected_indices if i < len(docs)]
     except:
-        # Hata olursa en iyi ihtimalle ilk 5'i döndür (Fallback)
+        # Hata olursa en iyi ihtimalle ilk 5'i döndür 
         return docs[:5]
 
 def generate_answer(question, vector_store, chat_history):
@@ -118,10 +111,11 @@ def generate_answer(question, vector_store, chat_history):
     
     translation_prompt = f"""
     Soru: "{refined_question}"
+    
     GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
     
     ANALİZ MANTIĞI (SADE):
-    1. EĞER SORU "LİSANSÜSTÜ" (Master/Doktora) İLE İLGİLİYSE:
+    1. EĞER SORU "LİSANSÜSTÜ" İLE İLGİLİYSE:
        - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK, ALES)
        - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
 
@@ -137,7 +131,6 @@ def generate_answer(question, vector_store, chat_history):
     4. DİĞER DURUMLARDA:
        - Sadece "MEVZUAT" ekle.
 
-    Soru: "{question}"
     Sadece eklenecek anahtar kelimeleri yaz:
     """
     
