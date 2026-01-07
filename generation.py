@@ -20,8 +20,10 @@ def rerank_documents(query, docs, api_key):
     doc_text = ""
     for i, doc in enumerate(docs):
         # Dosya adını ve içeriği birleştiriyoruz
-        source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
-        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
+        #source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
+        #doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
+        clean_content = doc.page_content.replace("\n", " ").strip()
+        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content}\n"
 
     rerank_prompt = f"""
     GÖREV: Aşağıdaki belge parçalarını analiz et ve kullanıcının sorusuyla EN ALAKALI olanları seç.
@@ -109,8 +111,8 @@ def generate_answer(question, vector_store,chat_history):
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
         initial_docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
-            k=30,             
-            fetch_k=350,      
+            k=40,             
+            fetch_k=400,      
             lambda_mult=0.6  
         )
     except Exception as e:
