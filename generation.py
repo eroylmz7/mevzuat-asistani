@@ -23,13 +23,12 @@ def generate_answer(question, vector_store, chat_history):
     
     ANALİZ ADIMLARI:
     1. KONU TESPİTİ:
-       - Akademik 1: "Tez", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
-       - Akademik 2: "Çap", "Yandal", "Yaz Okulu" -> "LİSANS EĞİTİMİ"
-       - İdari: "Rektör", "Personel", "İzin", "Teşkilat", "Atama" -> "İDARİ MEVZUAT"
-       - Disiplin: "Ceza", "Kopya", "Uzaklaştırma" -> "DİSİPLİN SUÇU"
-       
-    2. GÜNCELLİK VE DETAY:
-       - Soru "Yayın şartı", "Mezuniyet kriteri" içeriyorsa -> "Senato Kararı", "Yayın Esasları", "Ek Madde" terimlerini ekle.
+        - "Tez", "Jüri", "Yüksek Lisans", "Doktora" → "LİSANSÜSTÜ EĞİTİM"
+        - "Çap", "Yandal", "Yaz Okulu", "Ders" → "LİSANS EĞİTİMİ"
+        - "Rektör", "Personel", "İzin", "Atama" → "İDARİ MEVZUAT"
+        - "Ceza", "Kopya", "Uzaklaştırma", "Soruşturma" → "DİSİPLİN SUÇU"
+        - "Yayın şartı", "Mezuniyet şartı" → "SENATO KARARI"
+
     
     Soru: "{question}"
     Geliştirilmiş Arama Sorgusu (Sadece terimler):
@@ -46,7 +45,7 @@ def generate_answer(question, vector_store, chat_history):
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
         docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
-            k=15,             
+            k=20,             
             fetch_k=120,      
             lambda_mult=0.75  
         )
@@ -87,7 +86,7 @@ def generate_answer(question, vector_store, chat_history):
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.1 # Yaratıcılık sıfır, sadece kanıt.
+        temperature=0.0 # Yaratıcılık sıfır, sadece kanıt.
     )
     
     final_template = f"""
