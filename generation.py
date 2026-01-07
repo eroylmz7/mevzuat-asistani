@@ -85,7 +85,7 @@ def generate_answer(question, vector_store, chat_history):
         context_text += f"\n--- BELGE KAYNAĞI: {filename} (Sayfa {page}) ---\nİÇERİK: {content}\n"
         
         # Kullanıcıya gösterilecek kaynak listesi
-        src_str = f"{filename} (Sayfa {page})"
+        src_str = filename
         if src_str not in sources:
             sources.append(src_str)
 
@@ -130,6 +130,17 @@ def generate_answer(question, vector_store, chat_history):
     
     try:
         answer = llm_answer.invoke(final_template).content
-        return {"answer": answer, "sources": sources[:5]}
+        
+        # --- DEĞİŞİKLİK BURADA: CEVAP YOKSA KAYNAK GİZLE 🕵️‍♂️ ---
+        # Eğer cevapta "bulunamadı", "yoktur" gibi şeyler geçiyorsa kaynakları boşalt.
+        negative_signals = ["bulunmamaktadır", "bilgi yok", "rastlanmamıştır", "yer almamaktadır", "belirtilmemiştir"]
+        
+        if any(signal in answer.lower() for signal in negative_signals):
+            final_sources = [] # Boş liste döndür (Böylece UI'da kutu çıkmaz)
+        else:
+            final_sources = sources[:5] # Sadece ilk 5 dosya adı
+
+        return {"answer": answer, "sources": final_sources}
+
     except Exception as e:
         return {"answer": f"Cevap oluşturulurken hata: {str(e)}", "sources": []}
