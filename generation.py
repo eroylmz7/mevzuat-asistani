@@ -24,7 +24,7 @@ def rerank_documents(query, docs, api_key):
         #doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
         source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         clean_content = doc.page_content.replace("\n", " ").strip()
-        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content}\n"
+        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content[:1200]}...\n"
 
     rerank_prompt = f"""
     GÖREV: Aşağıdaki belge parçalarını analiz et ve kullanıcının sorusuyla EN ALAKALI olanları seç.
@@ -35,10 +35,9 @@ def rerank_documents(query, docs, api_key):
     {doc_text}
 
     SEÇİM STRATEJİSİ (GENEL KURALLAR):
-    1. **KAPSAM UYUMU:** Sorunun muhatabı kim? (Örn: Soru "Doktora" diyorsa, sadece "Lisans" ile ilgili belgeleri ELE. Soru "Yurt" diyorsa, "Eğitim" belgelerini ELE.)
-    2. **İÇERİK EŞLEŞMESİ:** Belge, soruya cevap olabilecek somut bir hüküm, madde veya sayısal veri içeriyor mu? Boş veya alakasız giriş kısımlarını seçme.
-    3. **HİYERARŞİ:** Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
-    1. **SAYISAL EŞLEŞME:** Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların geçtiği metinleri veya tabloları seç.
+    1. **KAPSAM UYUMU:** Sorunun muhatabı kim? (Örn: Soru "Doktora" diyorsa, "Lisans" ile ilgili belgeleri ele)
+    2. **HİYERARŞİ:** Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
+    3. **SAYISAL EŞLEŞME:** Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların geçtiği metinleri veya tabloları seç.
     
     ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
@@ -87,7 +86,7 @@ def generate_answer(question, vector_store,chat_history):
        - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
 
     2. EĞER SORU "LİSANS"  İLE İLGİLİYSE:
-       - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, DC, DD, Azami Süre)
+       - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, AA, DD, Azami Süre)
        - EKLE: "LİSANS EĞİTİM YÖNETMELİĞİ"
 
     3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
@@ -96,9 +95,9 @@ def generate_answer(question, vector_store,chat_history):
        
 
     4. DİĞER DURUMLARDA:
-       - Sadece "MEVZUAT" ekle.
+       - Bir şey ekleme.
 
-    Sadece eklenecek anahtar kelimeleri yaz:
+    Sadece eklenecek kelimeleri yaz:
     """
     
     try:
@@ -108,22 +107,54 @@ def generate_answer(question, vector_store,chat_history):
         hybrid_query = question
 
     # --- 3. RETRIEVAL (KARARLI MOD) ---
-    try:
+    #try:
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
-        initial_docs = vector_store.max_marginal_relevance_search(
-            hybrid_query,
-            k=40,             
-            fetch_k=400,      
-            lambda_mult=0.6  
+        #initial_docs = vector_store.max_marginal_relevance_search(
+            #hybrid_query,
+            #k=40,             
+            #fetch_k=400,      
+            #lambda_mult=0.6  
         )
+    #except Exception as e:
+        #return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
+    
+    # --- ADIM 2: ÇİFT ARAMA (DUAL SEARCH - OPTİMİZE EDİLDİ 🏎️) ---
+    try:
+        # k değerini 40'tan 20'ye çektik.
+        # İki arama birleşince toplam 40 belge olacak. Bu Reranker için yönetilebilir sınırdır.
+        
+        # Arama 1: Saf Soru
+        docs_plain = vector_store.max_marginal_relevance_search(
+            question,
+            k=20,            # <--- BURASI DEĞİŞTİ (40 -> 20)
+            fetch_k=200,
+            lambda_mult=0.6
+        )
+
+        # Arama 2: Zenginleştirilmiş Soru
+        docs_hybrid = vector_store.max_marginal_relevance_search(
+            hybrid_query,
+            k=20,            # <--- BURASI DEĞİŞTİ (40 -> 20)
+            fetch_k=200,
+            lambda_mult=0.6
+        )
+
+        # Tekrarları temizle
+        seen_contents = set()
+        initial_docs = []
+        
+        for doc in docs_plain + docs_hybrid:
+            content_preview = doc.page_content[:100]
+            if content_preview not in seen_contents:
+                initial_docs.append(doc)
+                seen_contents.add(content_preview)
+
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
-  
-# --- 3. RE-RANKING (AKILLI ELEME) 🔥 ---
-    # 25 belgeyi al, Gemini'ye ver, en iyi 5 tanesini seçtir.
-    # Bu aşama "Lisans vs Yüksek Lisans" karışıklığını %100 çözer.
+    # --- ADIM 3: RE-RANKING ---
     final_docs = rerank_documents(question, initial_docs, google_api_key)
+
 
     # --- 4. FORMATLAMA ---
     context_text = ""
