@@ -69,60 +69,40 @@ def generate_answer(question, vector_store,chat_history):
     
     
     
-    # --- 2. ANALİST AJAN (Sorgu Zenginleştirme) ---
-    llm_translator = ChatGoogleGenerativeAI(
+    # --- ADIM 1: HyDE AJANI (KÖKTEN ÇÖZÜM 🔥) ---
+    # Soruya kelime eklemek yerine, cevabın "taslağını" oluşturuyoruz.
+    hyde_llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.1 
+        temperature=0.3 # Biraz yaratıcı olsun ki farklı kelimeler türetsin
     )
     
-    translation_prompt = f"""
-    Soru: "{question}"
-
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
+    hyde_prompt = f"""
+    GÖREV: Aşağıdaki üniversite mevzuatı sorusu için, yönetmeliklerde geçmesi muhtemel olan İDEAL BİR CEVAP PARAGRAFI yaz.
     
-    ANALİZ MANTIĞI (SADE):
-    1. EĞER SORU "LİSANSÜSTÜ" İLE İLGİLİYSE:
-       - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK, ALES)
-       - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
-
-    2. EĞER SORU "LİSANS"  İLE İLGİLİYSE:
-       - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, AA, DD, Azami Süre)
-       - EKLE: "LİSANS EĞİTİM YÖNETMELİĞİ"
-
-    3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
-       - (İpuçları: Staj, İME, Uygulamalı Eğitim, İş Yeri Eğitimi, Grup)
-       - EKLE: "UYGULAMALI EĞİTİM YÖNERGESİ"
-       
-
-    4. DİĞER DURUMLARDA:
-       - Bir şey ekleme.
-
-    Sadece eklenecek kelimeleri yaz:
+    AMAÇ: Doğru cevabı bilmiyorsun ama cevabın içinde geçecek kelimeleri (terminolojiyi) tahmin etmeye çalışıyorsun.
+    
+    SORU: "{question}"
+    
+    HAYALİ CEVAP TASLAĞI (Resmi bir dille, yönetmelik ağzıyla yaz):
     """
     
     try:
-        official_terms = llm_translator.invoke(translation_prompt).content.strip()
-        hybrid_query = f"{question} {official_terms}"
+        # Bu "hypothetical_answer" içinde sorunun cevabında geçmesi gereken 
+        # "yapılmaz", "hariçtir", "madde", "yönerge" gibi kelimeler otomatik oluşacak.
+        hypothetical_answer = hyde_llm.invoke(hyde_prompt).content.strip()
+        
+        # Arama Sorgusu = Orijinal Soru + Hayali Cevap
+        hybrid_query = f"{question} {hypothetical_answer}"
+        
     except:
         hybrid_query = question
 
     # --- 3. RETRIEVAL (KARARLI MOD) ---
-    #try:
-        # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
-        #initial_docs = vector_store.max_marginal_relevance_search(
-            #hybrid_query,
-            #k=40,             
-            #fetch_k=400,      
-            #lambda_mult=0.6  
-        #)
-    #except Exception as e:
-        #return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
-    # --- ADIM 2: ÇİFT ARAMA (DUAL SEARCH - OPTİMİZE EDİLDİ 🏎️) ---
     try:
         # k değerini 40'tan 20'ye çektik.
-        # İki arama birleşince toplam 40 belge olacak. Bu Reranker için yönetilebilir sınırdır.
+        # İki arama birleşince toplam 40 belge olacak.
         
         # Arama 1: Saf Soru
         docs_plain = vector_store.max_marginal_relevance_search(
@@ -133,7 +113,7 @@ def generate_answer(question, vector_store,chat_history):
         )
 
         # Arama 2: Zenginleştirilmiş Soru
-        docs_hybrid = vector_store.max_marginal_relevance_search(
+        docs_hyde = vector_store.max_marginal_relevance_search(
             hybrid_query,
             k=20,            # <--- BURASI DEĞİŞTİ (40 -> 20)
             fetch_k=200,
@@ -144,7 +124,7 @@ def generate_answer(question, vector_store,chat_history):
         seen_contents = set()
         initial_docs = []
         
-        for doc in docs_plain + docs_hybrid:
+        for doc in docs_plain + docs_hyde:
             content_preview = doc.page_content[:100]
             if content_preview not in seen_contents:
                 initial_docs.append(doc)
