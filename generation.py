@@ -22,7 +22,7 @@ def generate_answer(question, vector_store, chat_history):
     
     ANALİZ ADIMLARI:
     1. KONU TESPİTİ:
-       - Akademik: "Tez", "Sınav", "Ders", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
+       - Akademik: "Tez", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
        - İdari: "Rektör", "Personel", "İzin", "Teşkilat", "Atama" -> "İDARİ MEVZUAT"
        - Disiplin: "Ceza", "Kopya", "Uzaklaştırma" -> "DİSİPLİN SUÇU"
        
