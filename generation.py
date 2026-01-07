@@ -126,7 +126,21 @@ def generate_answer(question, vector_store,chat_history):
             HAYALİ CEVAP TASLAĞI (Resmi bir dille, yönetmelik ağzıyla yaz):
             """
             hypothetical_answer = llm_router.invoke(hyde_prompt).content.strip()
-            hybrid_query = f"{question} {hypothetical_answer}"
+
+            # --- EKSİK OLAN PARÇA BURASIYDI (BAĞLAM ENJEKSİYONU) 💉 ---
+            # HyDE cevabı hayal etse bile, hangi dosyada arayacağını garantilememiz lazım.
+            context_terms = ""
+            q_lower = question.lower()
+            
+            if "staj" in q_lower or "iş yeri" in q_lower or "uygulama" in q_lower:
+                context_terms = "UYGULAMALI EĞİTİM YÖNERGESİ" 
+            elif "tez" in q_lower or "doktora" in q_lower or "yüksek lisans" in q_lower:
+                context_terms = "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
+            elif "lisans" in q_lower or "ders" in q_lower:
+                context_terms = "LİSANS EĞİTİM YÖNETMELİĞİ"
+            
+            hybrid_query = f"{question} {hypothetical_answer} {context_terms}"
+            
 
     except Exception:
             # EĞER ROUTER HATA VERİRSE PROGRAM ÇÖKMESİN, SAF SORUYLA DEVAM ETSİN
