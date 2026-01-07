@@ -19,7 +19,7 @@ def rerank_documents(query, docs, api_key):
         source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         clean_content = doc.page_content.replace("\n", " ").strip()
         # 1500 karaktere çıkardık ki bağlam kopmasın
-        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content[:1500]}...\n"
+        doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content[:2000]}...\n"
 
     rerank_prompt = f"""
     GÖREV: Aşağıdaki belge parçalarını analiz et ve kullanıcının sorusuyla EN ALAKALI olanları seç.
