@@ -153,8 +153,8 @@ def generate_answer(question, vector_store,chat_history):
     ---  CEVAPLAMA KURALLARI ---
 
     KURAL 1: HİYERARŞİ 
-    - Eğer bir konuda iki belgede de bilgi varsa, DETAY ve UYGULAMA (sayısal veriler, süreler, net tarihler) için her zaman "Uygulama Esasları"nı (veya Yönergeyi) baz al.
-   - "Yönetmelik" daha genel hükümler içerir, "Esaslar" ise bu hükümlerin nasıl uygulanacağını anlatır. Çelişki durumunda "Uygulama Esasları" geçerlidir.
+    - Özel düzenleme > Genel düzenleme
+    - Yönerge/Uygulama Esasları > Yönetmelik
 
     KURAL 2: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
