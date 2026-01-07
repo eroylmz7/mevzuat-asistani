@@ -82,12 +82,12 @@ def generate_answer(question, vector_store, chat_history):
         src_str = f"{filename} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
-            
+
     # --- 5. CEVAPLAYICI (HUKUKÇU MODU) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.0 # Yaratıcılık sıfır, sadece kanıt.
+        temperature=0.1 # Yaratıcılık sıfır, sadece kanıt.
     )
     
     final_template = f"""
@@ -99,35 +99,31 @@ def generate_answer(question, vector_store, chat_history):
 
     SORU: {question}
 
-    --- 🧠 KARAR VERME MEKANİZMASI (BU KURALLARA UY) ---
+    --- 🧠 KARAR VERME VE CEVAPLAMA KURALLARI ---
 
-    KURAL 1: BELGE TÜRÜNÜ TANI
-    - Soru "Akademik" (Öğrenci, Sınav) ise -> Akademik belgelere bak.
-    - Soru "İdari" (Rektör, Personel, Teşkilat) ise -> İdari belgelere bak (Öğrenci yönetmeliğini karıştırma).
+    KURAL 1: BELGE TÜRÜ VE HİYERARŞİSİ (ETİKET YOK, MANTIK VAR) ⚖️
+    - Hukukta "Özel Hüküm", "Genel Hüküm"den üstündür.
+    - Eğer elindeki belgelerde bir çelişki görürsen:
+      A) "Uygulama Esasları", "Yönerge" veya "Senato Kararı" gibi detaylı belgeler, genel "Yönetmelik"lerden daha önceliklidir. Onlardaki bilgiyi esas al.
+      B) Daha yeni tarihli olan belgeyi (Eğer tarih varsa) esas al.
 
-    KURAL 2: HİYERARŞİ VE GÜNCELLİK ⚖️
-    - Eğer iki belge arasında çelişki varsa (Örn: Biri "X yapılabilir", diğeri "X yasaktır" diyorsa):
-      A) Başlığında "🔥 [YÜKSEK ÖNCELİK]" yazan belgeye İTAAT ET. (O belge daha özel veya daha günceldir).
-      B) "Özel Hüküm" (Yönerge/Esaslar), "Genel Hüküm"den (Yönetmelik) üstündür.
+    KURAL 2: KAPSAM AYRIMI (ÇOK ÖNEMLİ)
+    - Belge başlıklarına ve içeriğine bakarak kapsamı sen ayırt et:
+      * Soru "Yüksek Lisans" veya "Doktora" ise -> Sadece Lisansüstü belgelerinden cevap ver.
+      * Soru "Lisans" veya "Önlisans" ise -> Sadece Fakülte/MYO belgelerinden cevap ver.
+      * "Lisans" sorusuna "Lisansüstü" yönetmeliğinden cevap verme (veya tam tersi).
 
-    KURAL 3: KAPSAM İZOLASYONU
-    - Soru "Yüksek Lisans" ise -> "Doktora" başlıklarını GÖRMEZDEN GEL.
-    - Soru "Doktora" ise -> "Yüksek Lisans" başlıklarını GÖRMEZDEN GEL.
-    - Soru "Lisans" (Önlisans/Fakülte) ise -> "Lisansüstü" belgelerini GÖRMEZDEN GEL.
-    
-    KURAL 4: BİLGİ BİRLEŞTİRME VE SENTEZ
-    - Kullanıcı "Mezuniyet şartları nelerdir?", "Yatay geçiş koşulları nelerdir?" gibi GENEL bir liste isterse:
-    - Tek bir maddede "İşte liste budur" diye yazmayabilir.
-    - Metin içindeki farklı maddelere dağılmış bilgileri (AKTS kredisi, GANO şartı, Süre şartı, Zorunlu dersler vb.) senin toplayıp BİRLEŞTİRMEN gerekir.
-    - "Belgelerde toplu liste yok" deyip kestirip atma. Parçaları birleştirerek cevabı sen oluştur.
+    KURAL 3: BİLGİ BİRLEŞTİRME VE SENTEZ
+    - Kullanıcı "Mezuniyet şartları nelerdir?" gibi GENEL bir liste isterse:
+    - Tek bir maddede toplu liste arama. Metin içine dağılmış bilgileri (AKTS, GANO, Süre, Zorunlu dersler) sen toplayıp BİRLEŞTİR.
+    - "Belgelerde toplu liste yok" deyip kestirip atma. Dedektif gibi parçaları birleştir.
 
-    KURAL 5: HALÜSİNASYON ENGELLEME
-    - Yukarıdaki sentez kuralına rağmen, eğer parçalar da yoksa ve bilgi gerçekten metinde geçmiyorsa "Belgelerde bu bilgi bulunmamaktadır" de.
-    - Tahmin yürütme, yorum yapma. Sadece metinde yazanı aktar.
+    KURAL 4: REFERANS FORMATI
+    - Her bilginin sonuna, o bilgiyi hangi dosyadan aldığını parantez içinde ekle.
+    - Örnek: "Tez savunması en geç 1 ay içinde yapılır. (uludag_lisansustu_yonetmelik.pdf)"
 
-    KURAL 6: REFERANS FORMATI
-    - Cevap verirken, en son olarak bilgiyi hangi belgeden aldığını belirtmek için cümle sonuna (dosya_adi.pdf) formatını kullan.
-    - Örnek: "Yüksek lisans için ALES puanı en az 55 olmalıdır. (lisansustu_yonetmeligi.pdf)"
+    KURAL 5: DÜRÜSTLÜK
+    - Eğer bilgi metinlerde HİÇ YOKSA, uydurma. "Belgelerde bu bilgi bulunmamaktadır" de.
 
     CEVAP:
     """
