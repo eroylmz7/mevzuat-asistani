@@ -7,8 +7,7 @@ import re
 # --- YARDIMCI FONKSİYON: GEMINI RERANKER (AKILLI HAKEM) ---
 def rerank_documents(query, docs, api_key):
     """
-    Vektör veritabanından gelen kaba sonuçları (25 tane),
-    Gemini'ye okutup 'Gerçekten alakalı mı?' diye puanlatır ve eler.
+    Belgeri alaka düzeyine göre puanlar
     """
     reranker_llm = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", # Hızlı ve geniş context için ideal
@@ -66,38 +65,74 @@ def generate_answer(question, vector_store,chat_history):
     else:
         return {"answer": "Hata: Google API Key bulunamadı.", "sources": []}
 
+    numeric_keywords = [
+        "kaç", "yüzde", "oran", "puan", "sayı", "en az", "en çok", 
+        "süresi", "yıl", "gün", "notu", "katsayı", "ağırlık"
+    ]
     
-    
-    
+    is_numeric_question = any(keyword in question.lower() for keyword in numeric_keywords)
+
     # --- ADIM 1: HyDE AJANI (KÖKTEN ÇÖZÜM 🔥) ---
     # Soruya kelime eklemek yerine, cevabın "taslağını" oluşturuyoruz.
-    hyde_llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash", 
-        google_api_key=google_api_key,
-        temperature=0.3 # Biraz yaratıcı olsun ki farklı kelimeler türetsin
-    )
-    
-    hyde_prompt = f"""
-    GÖREV: Aşağıdaki üniversite mevzuatı sorusu için, yönetmeliklerde geçmesi muhtemel olan İDEAL BİR CEVAP PARAGRAFI yaz.
-    
-    AMAÇ: Doğru cevabı bilmiyorsun ama cevabın içinde geçecek kelimeleri (terminolojiyi) tahmin etmeye çalışıyorsun.
-    
-    SORU: "{question}"
-    
-    HAYALİ CEVAP TASLAĞI (Resmi bir dille, yönetmelik ağzıyla yaz):
-    """
-    
     try:
-        # Bu "hypothetical_answer" içinde sorunun cevabında geçmesi gereken 
-        # "yapılmaz", "hariçtir", "madde", "yönerge" gibi kelimeler otomatik oluşacak.
-        hypothetical_answer = hyde_llm.invoke(hyde_prompt).content.strip()
-        
-        # Arama Sorgusu = Orijinal Soru + Hayali Cevap
-        hybrid_query = f"{question} {hypothetical_answer}"
-        
-    except:
-        hybrid_query = question
+        llm_router = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash", 
+            google_api_key=google_api_key,
+            temperature=0.1 # Biraz yaratıcı olsun ki farklı kelimeler türetsin
+        )
+        if is_numeric_question:
 
+            # --- MOD A: SAYISAL / NET BİLGİ (ANALİST AJAN - KAVRAMSAL GENİŞLETME) ---
+            # HyDE burada KAPALI. Çünkü HyDE yanlış sayı uydurabilir.
+            
+
+            expansion_prompt= f"""
+            Soru: "{question}"
+
+            GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için SADECE GEREKLİYSE ek terim ekle.
+            
+            ANALİZ MANTIĞI (SADE):
+            1. EĞER SORU "LİSANSÜSTÜ" İLE İLGİLİYSE:
+            - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK, ALES)
+            - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ"
+
+            2. EĞER SORU "LİSANS"  İLE İLGİLİYSE:
+            - (İpuçları: ÇAP, Yandal, Yaz Okulu, Tek Ders, Bütünleme, DD, Azami Süre)
+            - EKLE: "LİSANS EĞİTİM YÖNETMELİĞİ"
+
+            3. EĞER SORU "UYGULAMA / STAJ" İLE İLGİLİYSE (YENİ KURAL):
+            - (İpuçları: Staj, İME, Uygulamalı Eğitim, İş Yeri Eğitimi, Grup)
+            - EKLE: "UYGULAMALI EĞİTİM YÖNERGESİ"
+            
+
+            4. DİĞER DURUMLARDA:
+            - Bir şey ekleme.
+
+            Sadece eklenecek kelimeleri yaz:
+            """
+            search_query_extension = llm_router.invoke(expansion_prompt).content.strip()
+            hybrid_query = f"{question} {search_query_extension}"
+
+        else: 
+            # --- MOD B: HÜKÜM / KURAL (HyDE AJANI - HAYALİ CEVAP) ---
+            # "Bütünleme var mı?" gibi sorular. Burada HyDE harika çalışır.
+            hyde_prompt = f"""
+            GÖREV: Aşağıdaki üniversite mevzuatı sorusu için, yönetmeliklerde geçmesi muhtemel olan İDEAL BİR CEVAP PARAGRAFI yaz.
+            
+            AMAÇ: Doğru cevabı bilmiyorsun ama cevabın içinde geçecek kelimeleri (terminolojiyi) tahmin etmeye çalışıyorsun.
+            
+            SORU: "{question}"
+            
+            HAYALİ CEVAP TASLAĞI (Resmi bir dille, yönetmelik ağzıyla yaz):
+            """
+            hypothetical_answer = llm_router.invoke(hyde_prompt).content.strip()
+            hybrid_query = f"{question} {hypothetical_answer}"
+
+    except Exception:
+            # EĞER ROUTER HATA VERİRSE PROGRAM ÇÖKMESİN, SAF SORUYLA DEVAM ETSİN
+            hybrid_query = question 
+           
+    
     # --- 3. RETRIEVAL (KARARLI MOD) ---
     
     try:
