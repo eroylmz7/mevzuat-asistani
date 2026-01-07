@@ -109,8 +109,8 @@ def generate_answer(question, vector_store,chat_history):
         # Karmaşık if-else'i kaldırdık. Tek ve güçlü bir standart kullanacağız.
         initial_docs = vector_store.max_marginal_relevance_search(
             hybrid_query,
-            k=25,             
-            fetch_k=300,      
+            k=30,             
+            fetch_k=400,      
             lambda_mult=0.6  
         )
     except Exception as e:
@@ -160,7 +160,9 @@ def generate_answer(question, vector_store,chat_history):
     KURAL 2: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
         Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
-    - Sayısal değerler (20 gün, %70, 240 AKTS gibi) özellikle dikkatli ara. Cevap sayısal bir değer gerektirebilir.
+    
+    KURAL 3: SAYISAL VERİLER
+    -ğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
 
     KURAL 3: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
