@@ -162,7 +162,7 @@ def generate_answer(question, vector_store,chat_history):
         Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
     
     KURAL 3: SAYISAL VERİLER
-    -ğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
+    -Eğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
 
     KURAL 3: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
