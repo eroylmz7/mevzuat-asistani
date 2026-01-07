@@ -22,18 +22,19 @@ def rerank_documents(query, docs, api_key):
         doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content[:1500]}...\n"
 
     rerank_prompt = f"""
-    GÖREV: Kullanıcının sorusuna cevap verebilecek belge parçalarını seç.
-    
+    GÖREV: Aşağıdaki belge parçalarını analiz et ve kullanıcının sorusuyla EN ALAKALI olanları seç.
+
     SORU: "{query}"
-    
+
     ADAY BELGELER:
     {doc_text}
+
+    SEÇİM STRATEJİSİ (GENEL KURALLAR):
+    1. Yüksek Lisans ve Lisans sorularındaki ayrıma dikkat et.
+    2. HİYERARŞİ: Eğer aynı konuda hem "Genel Yönetmelik" hem de "Uygulama Esasları/Yönerge" varsa, daha detaylı olan Yönergeyi/Esasları tercih et.
+    3. SAYISAL EŞLEŞME: Soruda oran, yüzde, not (AA, BA) veya katsayı soruluyorsa, belge içinde MUTLAKA bu sayıların geçtiği metinleri veya tabloları seç.
     
-    SEÇİM KRİTERİ:
-    - Belge sorudaki anahtar kelimeleri (Staj, Not, Yüzde, Bütünleme vb.) içeriyor mu?
-    - Konuyla uzaktan yakından alakası varsa SEÇ. Çok sıkı eleme yapma.
-    
-    ÇIKTI (JSON):
+    ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
     """
     try:
