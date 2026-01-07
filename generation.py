@@ -113,8 +113,10 @@ def generate_answer(question, vector_store, chat_history):
     - Örneğin "Staj" sorusunda "Uygulamalı Eğitim Yönergesi" önceliklidir.
 
     KURAL 2: KAPSAM AYRIMI
-    - Soru "Yüksek Lisans/Doktora" ise -> Sadece Lisansüstü belgelerine bak.
-    - Soru "Lisans/Önlisans" ise -> Sadece Fakülte/MYO belgelerine bak.
+    - Soru "Yüksek Lisans/Doktora" ise -> Lisansüstü belgelerine bak.
+    - Soru "Lisans/Önlisans" ise ->  Lisans belgelerine bak.
+    - Soruda özellikle Lisans, Yüksek Lisans gibi bir belirtim yoksa daha genel düşün 
+
 
     KURAL 3: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Bunları birleştirerek bütünlüklü cevap ver.
