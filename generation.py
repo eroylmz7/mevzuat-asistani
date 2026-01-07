@@ -119,7 +119,7 @@ def generate_answer(question, vector_store,chat_history):
 # --- 3. RE-RANKING (AKILLI ELEME) 🔥 ---
     # 25 belgeyi al, Gemini'ye ver, en iyi 5 tanesini seçtir.
     # Bu aşama "Lisans vs Yüksek Lisans" karışıklığını %100 çözer.
-    final_docs = rerank_documents(hybrid_query, initial_docs, google_api_key)
+    final_docs = rerank_documents(question, initial_docs, google_api_key)
 
     # --- 4. FORMATLAMA ---
     context_text = ""
