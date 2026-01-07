@@ -175,7 +175,7 @@ def generate_answer(question, vector_store, chat_history):
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
         google_api_key=google_api_key,
-        temperature=0.2 # Yaratıcılık sıfır, sadece kanıt.
+        temperature=0.2 # Yaratıcılık 
     )
     
     final_template = f"""
@@ -196,7 +196,7 @@ def generate_answer(question, vector_store, chat_history):
     KURAL 2: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
         Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
-    - Sayısal değerler (20 gün, %70, 240 AKTS gibi) özellikle dikkatli ara.
+    - Sayısal değerler (20 gün, %70, 240 AKTS gibi) özellikle dikkatli ara. Cevap sayısal bir değer gerektirebilir.
 
     KURAL 3: REFERANS
     - Bilgiyi hangi dosyadan aldığını parantez içinde belirt. Örn: (uygulamali_egitimler.pdf)
