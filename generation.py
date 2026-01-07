@@ -17,26 +17,22 @@ def generate_answer(question, vector_store, chat_history):
         temperature=0.1 
     )
     
-
     translation_prompt = f"""
-    GÖREV: Kullanıcı sorusunu analiz et ve arama motorunun en doğru belgeyi bulması için soruyu ZENGİNLEŞTİR.
+    GÖREV: Kullanıcı sorusunu analiz et ve arama motoru için en kritik anahtar kelimeleri ekle.
     
-    ANALİZ MANTIĞI:
-    1. EĞER SORU "LİSANSÜSTÜ" (Master/Doktora) İLE İLGİLİYSE:
-       - (İpuçları: Tez, Jüri, Yeterlik, Danışman, Enstitü, Seminer, TİK)
-       - EKLE: "LİSANSÜSTÜ EĞİTİM YÖNETMELİĞİ", "LİSANSÜSTÜ UYGULAMA ESASLARI"
-
-    2. EĞER SORU "LİSANS/ÖNLİSANS" (Fakülte/MYO) İLE İLGİLİYSE:
-       - (İpuçları: ÇAP, Yandal, Staj, Yaz Okulu, Tek Ders, Bütünleme, DC, DD)
-       - EKLE: "ÖNLİSANS VE LİSANS EĞİTİM YÖNETMELİĞİ", "UYGULAMALI EĞİTİM YÖNERGESİ"
-
-    3. EĞER SORU ORTAK BİR KONUYSA (Mezuniyet, Kayıt, Sınav):
-       - Soru içinde "Lisans" geçiyorsa -> "LİSANS YÖNETMELİĞİ" ekle.
-       - Soru içinde "Yüksek Lisans/Doktora" geçiyorsa -> "LİSANSÜSTÜ YÖNETMELİĞİ" ekle.
-       - Hiçbiri yoksa -> "MEVZUAT" ekle.
-
+    
+    ANALİZ ADIMLARI:
+    1. KONU TESPİTİ:
+       - Akademik 1: "Tez", "Jüri", "Yüksek Lisans" -> "LİSANSÜSTÜ EĞİTİM"
+       - Akademik 2: "Çap", "Yandal", "Yaz Okulu" -> "LİSANS EĞİTİMİ"
+       - İdari: "Rektör", "Personel", "İzin", "Teşkilat", "Atama" -> "İDARİ MEVZUAT"
+       - Disiplin: "Ceza", "Kopya", "Uzaklaştırma" -> "DİSİPLİN SUÇU"
+       
+    2. GÜNCELLİK VE DETAY:
+       - Soru "Yayın şartı", "Mezuniyet kriteri" içeriyorsa -> "Senato Kararı", "Yayın Esasları", "Ek Madde" terimlerini ekle.
+    
     Soru: "{question}"
-    Sadece eklenecek anahtar kelimeleri yaz (Yorum yapma):
+    Geliştirilmiş Arama Sorgusu (Sadece terimler):
     """
     
     try:
@@ -61,44 +57,32 @@ def generate_answer(question, vector_store, chat_history):
     context_text = ""
     sources = []
     
-    for doc in docs:
-        content = doc.page_content.replace("\n", " ").strip()
-        filename = os.path.basename(doc.metadata.get("source", "Bilinmiyor")).lower()
-        
-        # --- DOSYA ÖNCELİK ALGORİTMASI ---
-        # Dosya ismine bakarak yapay zekaya "Bu belgeye ne kadar güvenmelisin?" sinyali veriyoruz.
-        
-        priority_tag = ""
-        doc_category = "GENEL BELGE"
-        
-        # 1. EN YÜKSEK ÖNCELİK (Özel Esaslar, Ekler, Senato Kararları)
-        if any(x in filename for x in ["tezyayın", "sart", "ek", "karar", "uygulama"]):
-            priority_tag = "🔥 [YÜKSEK ÖNCELİK / ÖZEL HÜKÜM]"
-            doc_category = "ÖZEL SENATO KARARI/YÖNERGESİ"
-            
-        # 2. ORTA ÖNCELİK (Yönetmelikler)
-        elif "yonetmelik" in filename:
-            doc_category = "GENEL YÖNETMELİK"
-            
-        # 3. KATEGORİ ETİKETLEME (Bağlam Karışıklığını Önlemek İçin)
-        if "lisansustu" in filename:
-            scope_tag = "(KAPSAM: LİSANSÜSTÜ)"
-        elif "lisans" in filename and "lisansustu" not in filename:
-            scope_tag = "(KAPSAM: LİSANS/ÖNLİSANS)"
-        elif "teskilat" in filename or "personel" in filename:
-            scope_tag = "(KAPSAM: İDARİ/PERSONEL)"
-        else:
-            scope_tag = "(KAPSAM: GENEL)"
+    # generation.py içinde 'for doc in docs:' döngüsünün tamamını bununla değiştir:
 
-        # Yapay Zekaya Gidecek Metin Bloğu
-        context_text += f"\n--- DOSYA: {filename} {priority_tag} {scope_tag} ---\nİÇERİK: {content}\n"
+    # --- 4. ETİKETLEME VE FORMATLAMA (SADE HALİ) ---
+    context_text = ""
+    sources = []
+
+    for doc in docs:
+        # Metni temizle
+        content = doc.page_content.replace("\n", " ").strip()
         
-        # Kaynak Listesi
+        # Dosya adını al (Sadece kaynak göstermek için)
+        filename = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
+        
+        # Sayfa numarasını al
         page = int(doc.metadata.get("page", 0)) + 1 if "page" in doc.metadata else 1
+
+        # --- LLM'E GİDECEK FORMAT ---
+        # Artık "Öncelik", "Kapsam" vs. gibi yapay yönlendirmeler YOK.
+        # LLM'e sadece saf metni veriyoruz, kararı o verecek.
+        context_text += f"\n--- BELGE KAYNAĞI: {filename} (Sayfa {page}) ---\nİÇERİK: {content}\n"
+        
+        # Kullanıcıya gösterilecek kaynak listesi
         src_str = f"{filename} (Sayfa {page})"
         if src_str not in sources:
             sources.append(src_str)
-
+            
     # --- 5. CEVAPLAYICI (HUKUKÇU MODU) ---
     llm_answer = ChatGoogleGenerativeAI(
         model="gemini-2.5-flash", 
