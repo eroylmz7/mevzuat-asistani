@@ -31,7 +31,8 @@ def rerank_documents(query, docs, api_key):
 
     SEÇİM STRATEJİSİ (GENEL KURALLAR):
     1. Belge, sorudaki ana konuyu (Staj, Kredi, AKTS, Puan) anlatıyor mu?
-    2. Sorudaki detaylar (parantez içi vb.) belgede birebir geçmeyebilir. ANLAM olarak eşleşiyorsa SEÇ.
+    2. Sorudaki detaylar belgede birebir geçmeyebilir. ANLAM olarak eşleşiyorsa SEÇ.
+    3. Soru "Seviye" diyebilir, Belge "Düzey" diyebilir. Bunun gibi benzer anlamlı aynı kabul et.
     3. Sayısal veriler (30 AKTS, %20, 65 puan) içeren belgeleri önceliklendir.
     
     ÇIKTI FORMATI (JSON):
@@ -66,15 +67,17 @@ def generate_answer(question, vector_store, chat_history):
         )
         
         cleaning_prompt = f"""
-        GÖREV: Kullanıcı sorusunu veritabanı araması için sadeleştir ve resmi dile çevir.
+        GÖREV: Kullanıcı sorusunu veritabanı araması için ZENGİNLEŞTİR ve RESMİLEŞTİR.
         
-        KURALLAR:
-        1. "Dönem içi", "Acaba", "Lütfen" gibi gereksiz detayları/gürültüleri sil.
-        2. "Staj" kelimesini "İşletmede Mesleki Eğitim / Staj" olarak genişlet.
-        3. Sadece en önemli anahtar kelimeler kalsın.
-        
-        Kullanıcı Sorusu: "{question}"
-        
+        YAPILACAKLAR:
+        1. Gürültüyü sil ("lütfen", "acaba" vb.).
+        2. EŞ ANLAMLILARI EKLE:
+           - "Seviye" -> "Düzey / Puan / Skor"
+           - "Şart" -> "Koşul / Kriter"
+           - "Staj" -> "İşletmede Mesleki Eğitim / Uygulamalı Eğitim"
+        3. Sorunun özünü koru.
+
+        Orijinal Soru: "{question}"
         Optimize Edilmiş Sorgu:
         """
         optimized_query = cleaner_llm.invoke(cleaning_prompt).content.strip()
@@ -89,30 +92,34 @@ def generate_answer(question, vector_store, chat_history):
     try:
         # Arama A: Orijinal Soru (Belki parantez içi önemlidir?)
         docs_raw = vector_store.max_marginal_relevance_search(
-            question, k=25, fetch_k=200, lambda_mult=0.5
+            question, k=25, fetch_k=200, lambda_mult=0.6
         )
         
         # Arama B: Temiz Soru (Gürültüsüz)
         docs_clean = vector_store.max_marginal_relevance_search(
-            optimized_query, k=25, fetch_k=200, lambda_mult=0.5
+            optimized_query, k=25, fetch_k=200, lambda_mult=0.6
         )
 
-        # Listeleri Birleştir (Tekrarları Silerek)
-        seen_contents = set()
+        # --- DEDUPLICATION (TEKRAR ENGELLEME) ---
+        seen_identifiers = set()
         initial_docs = []
         
-        # Önce temiz sonuçları ekle (Daha güvenilirdir)
         for doc in docs_clean + docs_raw:
-            content_preview = doc.page_content[:100]
-            if content_preview not in seen_contents:
+            unique_id = (
+                doc.metadata.get("source", ""),
+                doc.metadata.get("page", ""),
+                doc.page_content[:500]
+            )
+            
+            if unique_id not in seen_identifiers:
                 initial_docs.append(doc)
-                seen_contents.add(content_preview)
+                seen_identifiers.add(unique_id)
 
     except Exception as e:
         return {"answer": f"Veritabanı hatası: {str(e)}", "sources": []}
     
-    # --- ADIM 2: RERANKING (ELEME) ---
-    # Reranker'a orijinal soruyu veriyoruz ki bağlamı kaçırmasın.
+    # --- ADIM 2: RERANKING ---
+    # Hakem'e ZENGİNLEŞTİRİLMİŞ SORUYU veriyoruz.
     final_docs = rerank_documents(optimized_query, initial_docs, google_api_key)
 
     # --- ADIM 3: FORMATLAMA ---
@@ -146,15 +153,12 @@ def generate_answer(question, vector_store, chat_history):
 
     ---  CEVAPLAMA KURALLARI ---
 
-    KURAL 1: HİYERARŞİ 
-    - Özel düzenleme > Genel düzenleme
-    - Yönerge/Uygulama Esasları > Yönetmelik
 
-    KURAL 2: SENTEZ VE BİRLEŞTİRME
+    KURAL 1: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
         Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
     
-    KURAL 3: SAYISAL VERİLER
+    KURAL 2: SAYISAL VERİLER
     -Eğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
 
     KURAL 3: REFERANS
