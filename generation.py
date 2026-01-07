@@ -22,6 +22,7 @@ def rerank_documents(query, docs, api_key):
         # Dosya adını ve içeriği birleştiriyoruz
         #source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         #doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {doc.page_content[:400]}...\n"
+        source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         clean_content = doc.page_content.replace("\n", " ").strip()
         doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content}\n"
 
