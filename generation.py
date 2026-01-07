@@ -32,8 +32,8 @@ def rerank_documents(query, docs, api_key):
     SEÇİM STRATEJİSİ (GENEL KURALLAR):
     1. Belge, sorudaki ana konuyu (Staj, Kredi, AKTS, Puan) anlatıyor mu?
     2. Sorudaki detaylar belgede birebir geçmeyebilir. ANLAM olarak eşleşiyorsa SEÇ.
-    3. Soru "Seviye" diyebilir, Belge "Düzey" diyebilir. Bunun gibi benzer anlamlı aynı kabul et.
-    3. Sayısal veriler (30 AKTS, %20, 65 puan) içeren belgeleri önceliklendir.
+    3. Soru "Seviye" diyebilir, Belge "Düzey" diyebilir. Bunun gibi benzer anlamlıları aynı kabul et.
+    3. (30 AKTS, %20, 65 puan) gibi sayısal veriler içeren belgeleri önceliklendir.
     
     ÇIKTI FORMATI (JSON):
     {{ "selected_indices": [0, 2, 5] }}
