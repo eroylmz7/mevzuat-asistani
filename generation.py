@@ -92,12 +92,12 @@ def generate_answer(question, vector_store, chat_history):
     try:
         # Arama A: Orijinal Soru (Belki parantez içi önemlidir?)
         docs_raw = vector_store.max_marginal_relevance_search(
-            question, k=25, fetch_k=200, lambda_mult=0.6
+            question, k=30, fetch_k=300, lambda_mult=0.6
         )
         
         # Arama B: Temiz Soru (Gürültüsüz)
         docs_clean = vector_store.max_marginal_relevance_search(
-            optimized_query, k=25, fetch_k=200, lambda_mult=0.6
+            optimized_query, k=30, fetch_k=300, lambda_mult=0.6
         )
 
         # --- DEDUPLICATION (TEKRAR ENGELLEME) ---
@@ -166,6 +166,9 @@ def generate_answer(question, vector_store, chat_history):
     KURAL 1: SENTEZ VE BİRLEŞTİRME
     - Bilgiler parça parça olabilir (örn: Bir maddede süre, diğerinde AKTS yazar). Gerekirse bunları birleştirerek bütünlüklü cevap ver.
         Örnek: "lisans mezuniyet şartları nelerdir?" sorusu
+    - PDF'ten gelen metinlerde TABLO yapıları bozulmuş ve satırlar birbirine girmiş olabilir.
+    - Örnek: "Tezsiz Yüksek Lisans 10 30" gibi bir yazı görürsen, bunun "10 Ders" ve "30 Kredi" olduğunu bağlamdan çıkar.
+    - Satır kaymalarına aldanma, kelimelerin ve sayıların yakınlığına bakarak mantıksal ilişki kur.
     
     KURAL 2: SAYISAL VERİLER
     -Eğer soru "AA katsayısı" veya "Onur notu" gibi bir sayı soruyorsa, belgelerdeki tabloları veya sayı içeren maddeleri çok dikkatli oku.
