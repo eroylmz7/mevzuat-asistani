@@ -14,7 +14,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 
 # --- SAYFA AYARLARI ---
-st.set_page_config(page_title="Kampüs Mevzuat Asistanı", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Mevzuat Asistanı", page_icon="🎓", layout="wide")
 
 # --- MODÜLLERİ GÜVENLİ YÜKLEME ---
 try:
@@ -114,7 +114,7 @@ def get_cloud_db():
 
 # --- STATE AYARLARI ---
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Kampüs mevzuatı hakkında size nasıl yardımcı olabilirim?"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Merhaba! Mevzuatlar hakkında size nasıl yardımcı olabilirim?"}]
 
 if "logged_in" not in st.session_state: st.session_state.logged_in = False
 if "username" not in st.session_state: st.session_state.username = ""
@@ -139,7 +139,7 @@ if st.session_state.vector_store is None:
 
 # --- GİRİŞ EKRANI ---
 if not st.session_state.logged_in:
-    st.markdown("<br><br><h1 style='text-align: center; color: white;'>🎓 Kampüs Asistanı</h1>", unsafe_allow_html=True)
+    st.markdown("<br><br><h1 style='text-align: center; color: white;'>🎓 Mevzuat Asistanı</h1>", unsafe_allow_html=True)
     _, col_main, _ = st.columns([1, 1.5, 1])
     with col_main:
         with st.container():
