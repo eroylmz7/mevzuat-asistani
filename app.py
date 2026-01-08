@@ -210,7 +210,7 @@ with st.sidebar:
             st.session_state.uploader_key = 0
 
         # --- 2. DOSYA YÜKLEME (Dynamic Key ile) ---
-        # Key her değiştiğinde bu kutu sıfırlanır.
+        
         uploaded_files = st.file_uploader(
             "PDF Yükle", 
             accept_multiple_files=True, 
