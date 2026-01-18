@@ -78,7 +78,7 @@ def detect_document_title(text_preview, filename):
         return title
     except: return filename
 
-# --- 4. VISION İŞLEME (TEK SAYFA İÇİN MODÜLER HALE GETİRİLDİ) ---
+# --- 4. VISION MODU İLE  İŞLEME ---
 def process_single_page_vision(page, page_num):
     """
     Tek bir sayfayı Gemini Vision ile okur ve metni döndürür.
@@ -111,13 +111,13 @@ def process_single_page_vision(page, page_num):
         print(f"Vision Hatası (Sayfa {page_num}): {e}")
         return page.get_text() # Hata olursa normal oku
 
-# --- 5. ANA İŞLEME FONKSİYONU (DÜZELTİLMİŞ) ---
+# --- 5. ANA İŞLEME FONKSİYONU ---
 def process_pdfs(uploaded_files, use_vision_mode=False):
     try:
         supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
     except: return None
     
-    # 1. Pinecone Index Bağlantısı (Daha hızlı işlem için başta tanımla)
+    # 1. Pinecone Index Bağlantısı 
     try:
         embedding_model = GoogleGenerativeAIEmbeddings(
             model="models/embedding-001",
@@ -150,7 +150,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             if should_use_vision: st.warning(f"📸 Vision: {uploaded_file.name} ({reason})")
             else: st.success(f"⚡ Hızlı: {uploaded_file.name}")
 
-            # --- SAYFA SAYFA İŞLEME (Page-by-Page) ---
+            # --- SAYFA SAYFA İŞLEME ---
             doc = fitz.open(file_path)
             file_pages_docs = [] # Bu dosyanın sayfaları
             full_text_for_title = "" # Başlık tespiti için ilk sayfaları biriktir
@@ -171,7 +171,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
                 # Başlık tespiti için ilk 2 sayfanın metnini sakla
                 if i < 2: full_text_for_title += page_text + "\n"
 
-                # DOKÜMAN OLUŞTUR (Metadata'ya Dikkat!)
+                # DOKÜMAN OLUŞTUR 
                 if page_text.strip():
                     new_doc = Document(
                         page_content=page_text,
@@ -195,12 +195,12 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
 
             # --- SPLITTER (Parçalama) ---
             text_splitter = RecursiveCharacterTextSplitter(
-                chunk_size=2000, # Sayfa bütünlüğünü korumak için ideal
+                chunk_size=2000, # Senaryoya göre değiştirilebilir değerler.
                 chunk_overlap=300,
                 separators=["\nMADDE", "\n\n", ". ", " ", ""]
             )
             
-            # Listeyi split et (Metadata korunur)
+            # Listeyi split et
             chunks = text_splitter.split_documents(file_pages_docs)
             total_docs_to_upload.extend(chunks)
 
@@ -208,7 +208,7 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
             doc.close()
             if os.path.exists(file_path): os.remove(file_path)
 
-            # Supabase Yedekleme (Opsiyonel)
+            # Supabase Yedekleme 
             try:
                 uploaded_file.seek(0)
                 supabase.storage.from_("belgeler").upload(
@@ -242,9 +242,9 @@ def process_pdfs(uploaded_files, use_vision_mode=False):
     
     return None
 
-# --- TEMİZLEME VE DİĞER FONKSİYONLAR (Aynen Kalıyor) ---
+# --- TEMİZLEME VE DİĞER FONKSİYONLAR ---
 def delete_document_cloud(file_name):
-    # (Senin mevcut kodunla aynı kalabilir)
+    
     try:
         pinecone_api_key = st.secrets["PINECONE_API_KEY"]
         index_name = "mevzuat-asistani"
@@ -261,7 +261,7 @@ def delete_document_cloud(file_name):
     except Exception as e: return False, str(e)
 
 def connect_to_existing_index():
-    # (Senin mevcut kodunla aynı)
+    
     try:
         embedding_model = GoogleGenerativeAIEmbeddings(
             model="models/embedding-001",

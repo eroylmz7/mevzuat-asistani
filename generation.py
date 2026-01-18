@@ -4,8 +4,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 import json
 import re
 
-# --- 1. RERANKER (HAKEM) ---
-# Bu kısım kalmalı çünkü Streamlit Cloud'un işlemcisi sınırlı. 
+# --- 1. RERANKER (HAKEM) --- 
 # 40 belgeyi birden okuyamaz, en iyi 5-10 tanesini seçmeli.
 def rerank_documents(query, docs, api_key):
     reranker_llm = ChatGoogleGenerativeAI(
@@ -18,7 +17,7 @@ def rerank_documents(query, docs, api_key):
     for i, doc in enumerate(docs):
         source = os.path.basename(doc.metadata.get("source", "Bilinmiyor"))
         clean_content = doc.page_content.replace("\n", " ").strip()
-        # 1500 karaktere çıkardık ki bağlam kopmasın
+        # 2500 karaktere çıkardık ki bağlam kopmasın
         doc_text += f"\n[ID: {i}] (Kaynak: {source}) -> {clean_content[:2500]}...\n"
 
     rerank_prompt = f"""
@@ -135,13 +134,13 @@ def generate_answer(question, vector_store, chat_history):
         if filename not in sources:
             sources.append(filename)
     # ==========================================
-    # 🕵️‍♂️ EKLEME BURADA: DEBUG (HATA AYIKLAMA) PENCERESİ
+    # DEBUG (HATA AYIKLAMA) PENCERESİ
     # ==========================================
     # Bu kısım sayesinde Streamlit ekranında modelin okuduğu metni görebileceksin.
-    with st.expander("🔍 DEBUG: Modelin Okuduğu Ham Metin (Context)"):
-        st.write(f"Toplam Karakter Sayısı: {len(context_text)}")
-        st.write("Aşağıdaki metin, PDF'ten çekilip modele verilen ham veridir. Tabloların bozulup bozulmadığını buradan kontrol et:")
-        st.code(context_text)
+    # with st.expander("🔍 DEBUG: Modelin Okuduğu Ham Metin (Context)"):
+    #     st.write(f"Toplam Karakter Sayısı: {len(context_text)}")
+    #     st.write("Aşağıdaki metin, PDF'ten çekilip modele verilen ham veridir. Tabloların bozulup bozulmadığını buradan kontrol et:")
+    #     st.code(context_text)
     # ==========================================
 
     # --- ADIM 4: CEVAPLAYICI ---

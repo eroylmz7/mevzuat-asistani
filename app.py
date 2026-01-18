@@ -384,7 +384,7 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                         if any(keyword in answer_text.lower() for keyword in negative_keywords):
                             sources = [] 
 
-                        # Kaynakları HTML Bloğu Olarak Hazırlanması (GİZLENEBİLİR VERSİYON)
+                        # Kaynakları HTML Bloğu (gizlenebilir)
                         sources_html = ""
                         if sources: 
                             # <details> etiketi varsayılan olarak kapalı. Kullanıcı isterse açacak.
@@ -404,7 +404,7 @@ if prompt := st.chat_input("Sorunuzu yazın..."):
                         st.markdown(final_content, unsafe_allow_html=True)
                         st.session_state.messages.append({"role": "assistant", "content": final_content})
 
-                        # LOGLAMA (Artık Eksik Değil)
+                        # LOGLAMA 
                         log_kaydet(st.session_state.username, prompt, answer_text)
 
                 except Exception as e:
