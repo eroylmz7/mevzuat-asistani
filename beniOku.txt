@@ -1,0 +1,7 @@
+https://github.com/eroylmz7/mevzuat-asistani
+
+"cloud projenin github adresi."
+
+https://mevzuat-asistani-eren.streamlit.app/
+
+"cloud proje"
