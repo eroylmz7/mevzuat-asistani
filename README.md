@@ -72,6 +72,8 @@ SUPABASE_KEY = "eyJ..."            # Veri Tabanı Key
 ```toml
 streamlit, langchain-google-genai, langchain-pinecone, supabase, pymupdf
 ```
+##  Site Erişimi
+<https://mevzuat-asistani-eren.streamlit.app/>  tıklayabilirsiniz.
 
 ##  Neden Bu Mimari Seçildi?
 
@@ -82,6 +84,4 @@ streamlit, langchain-google-genai, langchain-pinecone, supabase, pymupdf
 | **Veri Kalıcılığı** | Uygulama yeniden başlatılsa bile Pinecone sayesinde veriler kaybolmaz. |
 | **Gelişmiş Zeka** | Yerel donanıma bağlı kalmadan Google'ın en güçlü modelleri (Gemini Vision & Flash) kullanılır. |
 
-##  Site Erişimi
-<https://mevzuat-asistani-eren.streamlit.app/>  tıklayabilirsiniz.
 Geliştirici: [Eren Yılmaz]
