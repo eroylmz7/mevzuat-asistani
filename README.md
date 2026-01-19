@@ -9,7 +9,7 @@ Proje, modern RAG (Retrieval-Augmented Generation) mimarisi üzerine kurulmuş o
 Proje üç ana teknik modülden oluşmaktadır. Her modül, belirli bir mikro-görevden sorumludur.
 
 ### 1. Veri İşleme ve Vektörleştirme (data_ingestion.py)
-Bu modül, PDF belgelerinin "ham veri"den "anlamsal vektör"e dönüştürüldüğü ETL (Extract-Transform-Load) hattıdır.
+Bu modül, PDF belgelerinin "ham veri"den "anlamsal vektör"e dönüştürüldüğüü ETL (Extract-Transform-Load) hattıdır.
 
 * **Hibrit PDF Okuma Stratejisi (Multimodal Parsing):**
     * Sistem, yüklenen her PDF'i önce analiz eder (`analyze_pdf_complexity`).
