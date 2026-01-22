@@ -1,43 +1,78 @@
 # ☁️ Kampüs Mevzuat Asistanı - Cloud Native Sürüm
-Bu proje, Bursa Uludağ Üniversitesi mevzuatlarını analiz etmek, öğrencilerin sorularını doğal dilde yanıtlamak ve yönetmeliklerdeki karmaşık tabloları anlamlandırmak amacıyla geliştirilmiş, Bulut Tabanlı (Cloud Native) bir Yapay Zeka asistanıdır.
+Bu proje, Bursa Uludağ Üniversitesi mevzuatlarını analiz etmek, öğrencilerin sorularını doğal dilde yanıtlamak ve yönetmeliklerdeki karmaşık tabloları anlamlandırmak amacıyla geliştirilmiş, Bulut Tabanlı (Cloud Native) bir LLM tabanlı Mevzuat Asistanıdır.
 
 Proje, modern RAG (Retrieval-Augmented Generation) mimarisi üzerine kurulmuş olup, ölçeklenebilirlik için Pinecone, veri bütünlüğü için Supabase ve bilişsel zeka için Google Gemini 2.5 Flash modellerini kullanmaktadır.
+
+## 🌐 Site Erişimi ve GitHub
+
+- 🔗 **Canlı Uygulama (Streamlit Cloud)**  
+  https://mevzuat-asistani-eren.streamlit.app/
+
+- 📦 **GitHub Kaynak Kodu**  
+  https://github.com/eroylmz7/mevzuat-asistani
+  <br>
+  ❗ .venv dosyası silinmiştir.
+
 
 ---
 
 ## 🏗️ Sistem Mimarisi ve Teknik Detaylar
 Proje üç ana teknik modülden oluşmaktadır. Her modül, belirli bir mikro-görevden sorumludur.
 
-### 1. Veri İşleme ve Vektörleştirme (data_ingestion.py)
+### 🔹 1. Veri İşleme ve Vektörleştirme (`data_ingestion.py`)
 Bu modül, PDF belgelerinin "ham veri"den "anlamsal vektör"e dönüştürüldüğüü ETL (Extract-Transform-Load) hattıdır.
 
 * **Hibrit PDF Okuma Stratejisi (Multimodal Parsing):**
+
     * Sistem, yüklenen her PDF'i önce analiz eder (`analyze_pdf_complexity`).
+
     * Eğer belge metin tabanlı ise, hızlı olması için **PyMuPDF (Fitz)** kullanılır.
+
     * Eğer belge taranmış resim ise veya karmaşık tablolar içeriyorsa, **Google Gemini 2.5 Flash Vision** modu devreye girer. Sayfanın fotoğrafı çekilerek LLM'den "Markdown" formatında tabloyu yeniden çizmesi istenir. Bu sayede tablo yapısı bozulmadan okunur.
+
+* **Akıllı Doküman İsimlendirme (Auto-Title Detection):**
+
+    * Dosya adı ne olursa olsun (örn: tarama_01.pdf), sistem belgenin içeriğini analiz ederek resmi başlığını otomatik tespit eder ve veritabanına doğru isimle kaydeder.
+
 * **Akıllı Bölümleme (Chunking):**
+
     * Belgeler `RecursiveCharacterTextSplitter` kullanılarak 2000 karakterlik parçalara bölünür.
+
+    * **Semantic Splitting:** Maddelerin bölünmesini engellemek için öncelikli olarak "MADDE" ve paragraf boşluklarından ayırma işlemi yapılır.
+
     * **Chunk Overlap:** 300 olarak ayarlanmıştır. Bu, bir maddenin (Örn: Madde 5) iki parça arasında bölünse bile bağlamın kopmamasını sağlar.
+
 * **Vektörleştirme (Embedding):**
+
     * Metin parçaları `google models/embedding-001` modeli ile sayısal vektörlere dönüştürülür ve **Pinecone** bulut veritabanına yüklenir.
 
-### 2. Akıllı Cevap Üretimi ve Sıralama (`generation.py`)
+###  🔹 2. Akıllı Cevap Üretimi ve Sıralama (`generation.py`)
+
 Sistemin "Beyin" kısmıdır. Klasik arama yerine **"2 Aşamalı Erişim (2-Stage Retrieval)"** stratejisi kullanılmıştır.
 
 * **Adım 1: Sorgu Zenginleştirme (Query Expansion):**
+
     * Kullanıcının ham sorusu (Örn: "Staj ne zaman?") bir LLM tarafından akademik literatüre uygun hale getirilir ve eş anlamlıları eklenir.(Örn: "Staj, İşletmede Mesleki Eğitim, Uygulamalı Eğitim tarihleri ve koşulları").
-* **Adım 2: Geniş Arama (Retrieval):**
-    * Optimize edilmiş sorgu ile Pinecone üzerinden **MMR (Maximal Marginal Relevance)** algoritması kullanılarak en alakalı 30 belge adayı getirilir. MMR, sadece benzerleri değil, konunun farklı yönlerini içeren çeşitli belgeleri seçer.
+
+* **Adım 2: Çift Yönlü Arama ve Tekilleştirme (Dual Search & Deduplication):**
+
+    * Sistem hem Kullanıcının Orijinal Sorusu hem de Zenginleştirilmiş Sorgu ile paralel arama yapar.
+
+    * İki havuzdan gelen en alakalı sonuçlar birleştirilir ve mükerrer kayıtlar (deduplication) temizlenir. Bu, hem tam eşleşmeleri hem de anlamsal benzerlikleri yakalamayı sağlar.
+
 * **Adım 3: Yeniden Sıralama (Reranking - The Judge):** 🌟
     * Getirilen 30 belge, **Gemini 2.5 Flash** modeline "Hakem" rolüyle verilir. Sadece en alakalı ve kanıt niteliği taşıyan **Top 5** belge seçilir. Bu, halüsinasyon oranını düşürür.
+
 * **Adım 4: Kanıtlı Cevaplama:**
     * Seçilen belgeler modele verilir ve cevap üretilir. Kaynaklar şeffaf bir şekilde HTML `<details>` yapısı ile "Kanıt Kutusu" olarak eklenir.
 
-### 3. Kullanıcı Arayüzü ve Yönetim (`app.py`)
+###  🔹 3. Kullanıcı Arayüzü ve Yönetim (`app.py`)
 **Streamlit** arayüzü ile son kullanıcı ve yöneticiler sistemle etkileşime girer.
 
 * **Supabase Entegrasyonu:**
     * **Kimlik Doğrulama (Auth):** Öğrenci ve Yönetici girişleri ayrıştırılmıştır.
+
+    * **Doküman Yönetimi (Storage):** Ham PDF dosyaları Supabase Storage üzerinde güvenle saklanır ve arayüz üzerinden "Görüntüle" butonu ile erişilebilir.
 
     * **Loglama:** Soru-cevap geçmişi `sorgu_loglari` tablosuna kaydedilerek Admin panelinde analiz edilir.
 
@@ -45,15 +80,24 @@ Sistemin "Beyin" kısmıdır. Klasik arama yerine **"2 Aşamalı Erişim (2-Stag
 
 * **Asenkron Yapı:** Performans için `asyncio` döngüleri optimize edilmiş ve `st.rerun()` stratejisi ile anlık veritabanı güncelliği sağlanmıştır.
 
+### Neden Bu Mimari Seçildi?
+
+| Özellik | Açıklama ve Avantajı |
+| :--- | :--- |
+| **Erişilebilirlik** | Herhangi bir cihazdan (Mobil, Tablet, PC) erişim sağlanır. |
+| **Kullanıcı Yönetimi** | Supabase üzerinden kimlik doğrulama ve rol bazlı yetkilendirme (RBAC) sunar. |
+| **Veri Kalıcılığı** | Uygulama yeniden başlatılsa bile Pinecone sayesinde veriler kaybolmaz. |
+| **Gelişmiş Zeka** | Yerel donanıma bağlı kalmadan Google'ın en güçlü modelleri (Gemini Vision & Flash) kullanılır. 
 
 
 ## 🛠️ Kurulum ve Dağıtım (Deployment)
 
 Bu proje **Streamlit Cloud** üzerinde çalıştırılmak üzere tasarlanmıştır.
 
-### 📋 Gereksinimler
+### 📋 Gereksinimler(Bu proje için hepsi yapılandırılmıştır)
 
 1.  GitHub üzerindeki depoya tüm kodlar yüklenir.
+
 2.  Streamlit Cloud panelinden `secrets.toml` ayarları yapılandırılır.
 
 ### 🔑 Ortam Değişkenleri (`secrets.toml`)
@@ -67,21 +111,15 @@ SUPABASE_URL = "https://..."       # Veri Tabanı URL
 SUPABASE_KEY = "eyJ..."            # Veri Tabanı Key
 ```
 
-### Kütüphaneler
- requirements.txt dosyasında aşağıdaki temel paketler bulunmalıdır:
+### 📦 Kütüphaneler
+ `requirements.txt` dosyasında aşağıdaki bazı temel paketler bulunmaktadır:
 ```toml
-streamlit, langchain-google-genai, langchain-pinecone, supabase, pymupdf
+streamlit, langchain-google-genai, langchain-pinecone, supabase, pymupdf ...
 ```
-##  Site Erişimi
-<https://mevzuat-asistani-eren.streamlit.app/>  tıklayabilirsiniz.
 
-##  Neden Bu Mimari Seçildi?
+## 👤 Geliştirici
 
-| Özellik | Açıklama ve Avantajı |
-| :--- | :--- |
-| **Erişilebilirlik** | Herhangi bir cihazdan (Mobil, Tablet, PC) erişim sağlanır. |
-| **Kullanıcı Yönetimi** | Supabase üzerinden kimlik doğrulama ve rol bazlı yetkilendirme (RBAC) sunar. |
-| **Veri Kalıcılığı** | Uygulama yeniden başlatılsa bile Pinecone sayesinde veriler kaybolmaz. |
-| **Gelişmiş Zeka** | Yerel donanıma bağlı kalmadan Google'ın en güçlü modelleri (Gemini Vision & Flash) kullanılır. |
-
-Geliştirici: [Eren Yılmaz]
+**Eren Yılmaz**  
+UÜ Bilgisayar Mühendisliği Öğrencisi  
+📧 eren_yilmaz_2010@hotmail.com  
+🔗 https://github.com/eroylmz7
